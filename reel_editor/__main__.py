@@ -5,6 +5,7 @@
   config set KEY VALUE|-            save a setting in .env ("-" reads the value from stdin; values never printed)
   config show                       list which settings are set (values hidden)
   test-keys                         real test search on Pexels / Pixabay with the keys in .env
+  vault set|delete|status [NAME]    encrypted store for the Envato login (AES-256, key in the OS keychain)
   browser login|start|stop|status|keepalive|install-service [envato]
                                     the editor's own Chrome Canary (permanent login) for sites with no API
   storage-setup [local|gdrive] [--token JSON]   create "Raw Videos" + "Finished Videos"
@@ -114,6 +115,10 @@ def doctor(brain_test=False):
             li = browser.logged_in("envato")
             row(True if li else None, "Envato login (editor browser)",
                 "logged in" if li else "python -m reel_editor browser login envato")
+        from . import vault
+        vault.migrate_from_env()
+        row(True if vault.has_login() else None, "Envato plan-B login (encrypted vault)",
+            f"saved, {vault.mode()}" if vault.has_login() else "not saved (only needed if the Canary login cannot work)")
     else:
         row(None, "B-roll", "none (stickers, text cards and punch-ins only)")
     st = C.STORAGE
@@ -137,6 +142,11 @@ def config_cmd(args):
         key, val = args[1], args[2]
         if val == "-":
             val = sys.stdin.readline().strip()
+        from . import vault
+        if key in vault.ALLOWED:          # logins never go in .env
+            vault.put(key, val)
+            print(f"saved {key} in the encrypted vault ({vault.mode()})")
+            return 0
         C.set_env_value(key, val)
         print(f"saved {key} in .env")
         return 0
@@ -173,6 +183,9 @@ def main(argv=None):
             print("no PEXELS_API_KEY / PIXABAY_API_KEY in .env")
             return 1
         return 0 if all(v is not False for v in res.values()) else 1
+    if cmd == "vault":
+        from .vault import main as vm
+        return vm(rest)
     if cmd == "browser":
         from .browser import main as br
         return br(rest)

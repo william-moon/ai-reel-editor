@@ -72,7 +72,9 @@ def _broll(s):
 - If searches fail: run `python -m reel_editor browser status`. Not running: `browser start`. Logged out:
   `browser keepalive` (signs back in if they saved their login), otherwise ask them once to run
   `browser login envato` (desktop). Only if the Canary login does not work for them, use plan B: their Envato
-  email + password saved with `config set ENVATO_EMAIL -` / `config set ENVATO_PASSWORD -` (never echo them).
+  email + password saved ENCRYPTED in the vault: `/envato` in the Telegram bot (deletes their messages), or
+  `vault set ENVATO_EMAIL` / `vault set ENVATO_PASSWORD` (hidden prompt; pipe with `-` if they pasted it).
+  Never write it to .env, a file, a log or a reply, and never repeat it back. `vault status` shows what is saved.
   Plan B needs an email + password Envato login: if they signed up with Google/Apple/Facebook, help them add a
   password first (https://account.envato.com/reset_password with that email; if that fails, Account settings >
   Disconnect Google Account, then the reset email; turn off Envato 2-step verification if it blocks this).

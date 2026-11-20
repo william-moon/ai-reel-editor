@@ -7,8 +7,8 @@ so there it falls back to google-chrome / chromium with the same separate profil
 Why it stays logged in: the profile lives OUTSIDE the repo (BROWSER_PROFILE, default ~/.ai-reel-editor/browser-profile),
 so cookies survive restarts, updates and re-installs. `browser install-service` keeps the browser running in the
 background (launchd on macOS, systemd --user on Linux, a logon task on Windows) and runs a daily keep-alive that
-visits the site so the session is refreshed before it can expire. If a site still logs out and the person chose to
-save their login (ENVATO_EMAIL / ENVATO_PASSWORD in the local .env), the keep-alive signs back in by itself.
+visits the site so the session is refreshed before it can expire. If a site still logs out and the person saved
+their login in the encrypted vault (reel_editor/vault.py), the keep-alive signs back in by itself.
 
   python -m reel_editor browser login envato       open a visible window on the sign-in page; log in once
   python -m reel_editor browser start [--visible]  start it in the background (headless) if not running
@@ -134,9 +134,10 @@ def stop():
 NODE_SCRIPT = os.path.join(C.ROOT, "tools", "browser_session.mjs")
 
 
-def _node(*args, timeout=120):
+def _node(*args, timeout=120, stdin=None):
+    env = {k: v for k, v in os.environ.items() if k not in ("ENVATO_EMAIL", "ENVATO_PASSWORD")}
     r = subprocess.run(["node", NODE_SCRIPT, *args], capture_output=True, text=True, timeout=timeout,
-                       env={**os.environ, "BROWSER_CDP": cdp_url()})
+                       input=stdin or "", env={**env, "BROWSER_CDP": cdp_url()})
     if r.returncode != 0:
         raise RuntimeError((r.stderr or r.stdout)[-400:].strip())
     return r.stdout.strip()
@@ -186,9 +187,11 @@ def keepalive(site="envato", log=print):
     if state is None:
         log(f"{site}: could not check (is node + `npm install` in tools/ done?)")
         return False
-    if C.env("ENVATO_EMAIL") and C.env("ENVATO_PASSWORD"):
+    from . import vault
+    if vault.has_login(site):
+        creds = json.dumps({"email": vault.get("ENVATO_EMAIL"), "password": vault.get("ENVATO_PASSWORD")})
         try:
-            out = json.loads(_node("login", site, timeout=150))
+            out = json.loads(_node("login", site, timeout=150, stdin=creds))
         except Exception as ex:
             log(f"{site}: automatic sign-in failed: {str(ex)[:160]}")
             return False
@@ -197,8 +200,9 @@ def keepalive(site="envato", log=print):
             return True
         log(f"{site}: automatic sign-in did not finish ({out.get('reason', 'unknown')}); run: browser login {site}")
         return False
-    log(f"{site}: logged out. Run: python -m reel_editor browser login {site}  (plan B if that cannot work: save "
-        "ENVATO_EMAIL / ENVATO_PASSWORD; Google/Apple sign-up accounts add a password at "
+    log(f"{site}: logged out. Run: python -m reel_editor browser login {site}  (plan B if that cannot work: save the "
+        "Envato login in the encrypted vault: /envato in the Telegram bot, or `vault set ENVATO_EMAIL` + "
+        "`vault set ENVATO_PASSWORD`; Google/Apple sign-up accounts add a password at "
         "https://account.envato.com/reset_password first)")
     return False
 
@@ -301,7 +305,7 @@ def status():
         "profile": profile_dir(),
         "running": bool(info),
         "envato_logged_in": logged_in("envato") if info else None,
-        "saved_login": bool(C.env("ENVATO_EMAIL") and C.env("ENVATO_PASSWORD")),
+        "saved_login": __import__("reel_editor.vault", fromlist=["x"]).has_login("envato"),
     }
     return out
 

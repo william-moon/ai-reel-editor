@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Session helper for the editor's own browser (Chrome Canary, permanent profile, remote debugging on BROWSER_CDP).
 //   browser_session.mjs check envato    -> {"logged_in": true|false}
-//   browser_session.mjs login envato    -> signs in with ENVATO_EMAIL / ENVATO_PASSWORD from the environment
-//                                          (only if the person chose to save them). Never prints them.
+//   browser_session.mjs login envato    -> signs in with {"email","password"} read from STDIN (the Python side
+//                                          decrypts them from the vault and pipes them in). Never printed or logged.
 //   browser_session.mjs close           -> closes the browser cleanly
 // A 2-step code (email/app) cannot be automated: then it reports {"logged_in": false, "reason": "2fa"} and the
 // person runs `python -m reel_editor browser login envato` once.
@@ -36,8 +36,14 @@ async function isLoggedIn(page, s) {
   return signIn === 0;
 }
 
+async function readStdin() {
+  if (process.stdin.isTTY) return {};
+  const chunks = []; for await (const c of process.stdin) chunks.push(c);
+  try { return JSON.parse(Buffer.concat(chunks).toString() || '{}'); } catch { return {}; }
+}
+
 async function login(page, s) {
-  const email = process.env.ENVATO_EMAIL, pass = process.env.ENVATO_PASSWORD;
+  const { email, password: pass } = await readStdin();
   if (!email || !pass) return { logged_in: false, reason: 'no saved login' };
   await page.goto(s.login, { waitUntil: 'domcontentloaded', timeout: 45000 });
   await sleep(2500);

@@ -35,7 +35,9 @@ def test_canary_preferred(monkeypatch):
     assert not B.is_canary("/usr/bin/chromium")
 
 
-def test_keepalive_asks_for_login_without_saved_credentials(monkeypatch):
+def test_keepalive_asks_for_login_without_saved_credentials(monkeypatch, tmp_path):
+    monkeypatch.setenv("SECRETS_DIR", str(tmp_path))
+    monkeypatch.setenv("VAULT_NO_KEYCHAIN", "1")
     monkeypatch.setattr(B, "running", lambda: {"Browser": "x"})
     monkeypatch.setattr(B, "logged_in", lambda site="envato": False)
     monkeypatch.delenv("ENVATO_EMAIL", raising=False)
@@ -45,11 +47,14 @@ def test_keepalive_asks_for_login_without_saved_credentials(monkeypatch):
     assert "browser login envato" in logs[-1]
 
 
-def test_keepalive_signs_back_in_with_saved_login(monkeypatch):
+def test_keepalive_signs_back_in_with_saved_login(monkeypatch, tmp_path):
     monkeypatch.setattr(B, "running", lambda: {"Browser": "x"})
     monkeypatch.setattr(B, "logged_in", lambda site="envato": False)
-    monkeypatch.setenv("ENVATO_EMAIL", "person@example.com")
-    monkeypatch.setenv("ENVATO_PASSWORD", "PASSWORD-VALUE")
+    from reel_editor import vault
+    monkeypatch.setenv("SECRETS_DIR", str(tmp_path))
+    monkeypatch.setenv("VAULT_NO_KEYCHAIN", "1")
+    vault.put("ENVATO_EMAIL", "person@example.com")
+    vault.put("ENVATO_PASSWORD", "PASSWORD-VALUE")
     calls = []
     monkeypatch.setattr(B, "_node", lambda *a, **k: calls.append(a) or '{"logged_in": true}')
     logs = []
@@ -79,3 +84,61 @@ def test_envato_doc_has_plan_b_for_google_signups(monkeypatch):
     monkeypatch.setenv("BROLL_SOURCE", "envato")
     doc = A.repo_doc(A.setup())
     assert "plan B" in doc and "reset_password" in doc and "Disconnect Google" in doc
+
+
+def test_vault_encrypts_and_refuses_tampering(monkeypatch, tmp_path):
+    from reel_editor import vault
+    monkeypatch.setenv("SECRETS_DIR", str(tmp_path))
+    monkeypatch.setenv("VAULT_NO_KEYCHAIN", "1")
+    monkeypatch.delenv("ENVATO_EMAIL", raising=False)
+    monkeypatch.delenv("ENVATO_PASSWORD", raising=False)
+    vault.put("ENVATO_EMAIL", "person@example.com")
+    vault.put("ENVATO_PASSWORD", "PASSWORD-VALUE")
+    assert vault.get("ENVATO_PASSWORD") == "PASSWORD-VALUE" and vault.has_login()
+    raw = (tmp_path / "vault.bin").read_bytes()
+    assert b"PASSWORD-VALUE" not in raw and b"person@example.com" not in raw
+    assert oct((tmp_path / "vault.bin").stat().st_mode & 0o777) == "0o600"
+    assert oct(tmp_path.stat().st_mode & 0o777) == "0o700"
+    bad = bytearray(raw); bad[-1] ^= 1
+    (tmp_path / "vault.bin").write_bytes(bytes(bad))
+    assert vault.get("ENVATO_PASSWORD") is None          # tampered file is refused, not half-read
+    import pytest
+    with pytest.raises(ValueError):
+        vault.put("PEXELS_API_KEY", "x")
+
+
+def test_plain_text_login_in_env_moves_into_vault(monkeypatch, tmp_path):
+    from reel_editor import vault
+    env = tmp_path / ".env"
+    env.write_text("ENVATO_PASSWORD=PASSWORD-VALUE\nOTHER=1\n")
+    monkeypatch.setattr(C, "ENV_FILE", str(env))
+    monkeypatch.setattr(C, "set_env_value", lambda k, v: env.write_text(
+        "\n".join(l if not l.startswith(k + "=") else f"{k}={v}" for l in env.read_text().splitlines()) + "\n"))
+    monkeypatch.setenv("SECRETS_DIR", str(tmp_path / "s"))
+    monkeypatch.setenv("VAULT_NO_KEYCHAIN", "1")
+    monkeypatch.setenv("ENVATO_PASSWORD", "PASSWORD-VALUE")
+    assert vault.migrate_from_env() == ["ENVATO_PASSWORD"]
+    assert "PASSWORD-VALUE" not in env.read_text() and "OTHER=1" in env.read_text()
+    assert vault.get("ENVATO_PASSWORD") == "PASSWORD-VALUE"
+
+
+def test_keepalive_pipes_login_on_stdin_not_env(monkeypatch, tmp_path):
+    from reel_editor import vault
+    monkeypatch.setenv("SECRETS_DIR", str(tmp_path))
+    monkeypatch.setenv("VAULT_NO_KEYCHAIN", "1")
+    vault.put("ENVATO_EMAIL", "person@example.com")
+    vault.put("ENVATO_PASSWORD", "PASSWORD-VALUE")
+    monkeypatch.setattr(B, "running", lambda: {"Browser": "x"})
+    monkeypatch.setattr(B, "logged_in", lambda site="envato": False)
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen.update(cmd=cmd, **kw)
+        class R:
+            returncode, stdout, stderr = 0, '{"logged_in": true}', ""
+        return R()
+    monkeypatch.setattr(B.subprocess, "run", fake_run)
+    assert B.keepalive("envato", log=lambda *a: None) is True
+    assert "PASSWORD-VALUE" in seen["input"]
+    assert all("PASSWORD-VALUE" not in str(a) for a in seen["cmd"])
+    assert "ENVATO_PASSWORD" not in seen["env"]
