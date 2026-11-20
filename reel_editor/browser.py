@@ -197,7 +197,9 @@ def keepalive(site="envato", log=print):
             return True
         log(f"{site}: automatic sign-in did not finish ({out.get('reason', 'unknown')}); run: browser login {site}")
         return False
-    log(f"{site}: logged out. Run: python -m reel_editor browser login {site}")
+    log(f"{site}: logged out. Run: python -m reel_editor browser login {site}  (plan B if that cannot work: save "
+        "ENVATO_EMAIL / ENVATO_PASSWORD; Google/Apple sign-up accounts add a password at "
+        "https://account.envato.com/reset_password first)")
     return False
 
 

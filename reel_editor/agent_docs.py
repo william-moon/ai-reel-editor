@@ -71,8 +71,11 @@ def _broll(s):
   The login is kept there permanently; `browser install-service` keeps it running and refreshes it daily.
 - If searches fail: run `python -m reel_editor browser status`. Not running: `browser start`. Logged out:
   `browser keepalive` (signs back in if they saved their login), otherwise ask them once to run
-  `browser login envato` (desktop) or to save their login (`ENVATO_EMAIL` / `ENVATO_PASSWORD` via `config set ... -`).
-  Never echo or repeat those values.
+  `browser login envato` (desktop). Only if the Canary login does not work for them, use plan B: their Envato
+  email + password saved with `config set ENVATO_EMAIL -` / `config set ENVATO_PASSWORD -` (never echo them).
+  Plan B needs an email + password Envato login: if they signed up with Google/Apple/Facebook, help them add a
+  password first (https://account.envato.com/reset_password with that email; if that fails, Account settings >
+  Disconnect Google Account, then the reset email; turn off Envato 2-step verification if it blocks this).
 - Download stock footage only. Never press Envato's AI-generation buttons (they spend credits and are not stock).
 - Envato downloads are licensed per project: one licence per video. Keep the `- credits.txt` file with each
   finished video so they know which items each reel used.

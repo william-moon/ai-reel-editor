@@ -76,12 +76,24 @@ they should not have to log in again.
 1. `PY -m reel_editor config set BROLL_SOURCE envato`, then `./install.sh --with-envato` (Windows: `install.ps1
    -WithEnvato`). This installs Node packages and Chrome Canary (macOS via Homebrew, Windows via winget; Linux has
    no Canary, so Chrome/Chromium is used with the same separate profile).
-2. Ask them to choose (one message, recommend a):
-   > How should I get into your Envato account?
-   >   a) Log in once in my own browser window (recommended). I open it, you sign in, it stays logged in.
-   >   b) Give me your Envato email and password. I keep them only in this computer's private settings file
-   >      and use them to sign back in by myself if Envato ever logs out. (Does not work with Google/Apple
-   >      sign-in or 2-step codes. On Telegram, delete your message after I confirm it is saved.)
+2. Start with a) - the Canary login. Use b) only if a) does not work for them (no screen on a server, the window
+   will not open, or the login keeps dropping):
+   > I'll open my own browser window on the Envato sign-in page. Log in once and it stays logged in.
+   - If a) fails, offer b):
+   > Plan B: give me your Envato email and password. I keep them only in this computer's private settings file
+   > and use them to sign in by myself. (On Telegram, delete your message after I confirm it is saved.)
+   - b) needs an Envato account with an EMAIL + PASSWORD login. First ask: "Did you sign up for Envato with
+     Google, Apple or Facebook instead of typing an email and password?" If yes, help them add a password
+     (2 minutes, their account stays the same):
+     1. Open https://account.envato.com/reset_password and enter the email of their Google/Apple/Facebook
+        account. Envato emails a link; they set a password (check spam if it does not arrive within a few
+        minutes).
+     2. If that does not give them a password: sign in at https://account.envato.com with Google as usual, open
+        Account settings, click "Disconnect Google Account" (or Apple/Facebook), confirm, then follow the
+        password-reset email Envato sends.
+     3. If disconnecting fails, the usual cause is 2-step verification on the Envato account: they turn it off
+        in Account settings first (the automatic sign-in cannot type 2-step codes anyway).
+     Then save the email + password as below. Help: https://help.elements.envato.com/hc/en-us/articles/900003430786
    - a) Desktop: `PY -m reel_editor browser login envato` - a Canary window opens on the Envato sign-in page;
      they log in (tick "Remember me"). The command waits, confirms, and moves the browser to the background.
      Headless server: there is no window to show, so use b), or have them log in on a desktop install and copy
@@ -89,8 +101,8 @@ they should not have to log in again.
    - b) Save without echoing:
      `echo "<email>" | PY -m reel_editor config set ENVATO_EMAIL -`
      `echo "<password>" | PY -m reel_editor config set ENVATO_PASSWORD -`
-     then `PY -m reel_editor browser keepalive` (signs in and confirms). If it reports `2fa` or `captcha`, fall
-     back to a).
+     then `PY -m reel_editor browser keepalive` (signs in and confirms). If it reports `2fa`, help them turn
+     off 2-step verification for Envato (step b.3); if `captcha`, have them log in once with a) on any desktop.
 3. Make it permanent: `PY -m reel_editor browser install-service` (start at login + daily keep-alive at 04:20;
    on a Linux server also `loginctl enable-linger $USER` once).
 4. Check: `PY -m reel_editor browser status` must show `"envato_logged_in": true`.

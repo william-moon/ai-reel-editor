@@ -73,3 +73,9 @@ def test_stock_doc_recommends_both(monkeypatch):
     monkeypatch.delenv("PIXABAY_API_KEY", raising=False)
     doc = A.repo_doc(A.setup())
     assert "Keep BOTH keys" in doc and "Pixabay key missing" in doc
+
+
+def test_envato_doc_has_plan_b_for_google_signups(monkeypatch):
+    monkeypatch.setenv("BROLL_SOURCE", "envato")
+    doc = A.repo_doc(A.setup())
+    assert "plan B" in doc and "reset_password" in doc and "Disconnect Google" in doc
