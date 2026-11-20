@@ -318,6 +318,8 @@ def step_spans(words, takes, dur, work):
         prv_raw, nxt_raw = byi.get(first["i"] - 1), byi.get(last["i"] + 1)
         # clean cut points from the loudness curve (never from whisper times alone): the clip may only start in the
         # silence before its first word and end in the silence after its last word -> no sliver of a cut word
+        # search bounds: the middle of the neighbouring transcript words (whisper's word edges are often 50-150 ms
+        # off); clean_onset/clean_offset find the real gap inside them and never cross into the neighbour's sound
         lo = max(first["s"] - 0.60, ((prv_raw["s"] + prv_raw["e"]) / 2) if prv_raw else 0.0)
         on, quiet_from = A.clean_onset(db, thr, first["s"], lo)
         hi = min(last["e"] + 0.60, ((nxt_raw["s"] + nxt_raw["e"]) / 2) if nxt_raw else dur)
@@ -325,6 +327,20 @@ def step_spans(words, takes, dur, work):
         tail = (join_end if re.search(r"[.?!]$", last["w"]) else join_mid)[0]
         spans.append({"on": on, "off": off, "qf": quiet_from, "qt": quiet_to, "tail": tail,
                       "words": [w["i"] for w in g], "last": last["w"]})
+    # a tiny drop with no silence on either side ("this, this", a 0.1 s "uh" spoken straight through) cannot be cut
+    # cleanly - any cut point clips a letter or leaves a sliver - so the words stay in (smoother than a chopped word)
+    merged = []
+    for sp in spans:
+        q = merged[-1] if merged else None
+        if q is not None:
+            gap_words = sp["words"][0] - q["words"][-1] - 1
+            run_together = (q["off"] == q["qt"]) and (sp["on"] == sp["qf"])
+            if run_together and 0 <= gap_words <= 2 and sp["on"] - q["off"] < 0.25:
+                q.update(off=sp["off"], qt=sp["qt"], tail=sp["tail"], last=sp["last"],
+                         words=q["words"] + list(range(q["words"][-1] + 1, sp["words"][0])) + sp["words"])
+                continue
+        merged.append(sp)
+    spans = merged
     for k, sp in enumerate(spans):
         prev_end_sentence = k and re.search(r"[.?!]$", spans[k - 1]["last"])
         head = (join_end if prev_end_sentence else join_mid)[1] if k else PAD_BEFORE

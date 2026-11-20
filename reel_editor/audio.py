@@ -152,11 +152,42 @@ def voice_offset(db, thr, lo, hi, run=3):
 QUIET_RUN = 3          # >= 30 ms below the voice threshold counts as a gap between words
 
 
+SOFT_DB = 10.0         # soft consonants (s, f, h, th, p) and word tails sit up to this far under the voice threshold
+SOFT_MAX = 0.15        # ... and last at most this long beyond the voiced part
+TOL = 0.10             # how far whisper's word edge may be from the real one
+SOFT_GUARD = 0.06      # when the "soft" sound never stops (room noise / breath, not a consonant): keep this much
+
+
+def _dip(db, a, b):
+    """quietest frame in [a, b) (frame indices), smoothed over 30 ms so a single dip does not win"""
+    a, b = max(0, a), min(len(db), b)
+    if b - a < 1:
+        return a
+    seg = np.asarray(db[a:b], dtype=float)
+    if len(seg) >= 3:
+        seg = np.convolve(seg, np.ones(3) / 3, mode="same")
+    return a + int(np.argmin(seg))
+
+
+def _deep_dip(db, a, b, depth=6.0):
+    """the deepest frame in [a, b) that is a real gap between two sounds (>= depth dB under the loudest frame within
+    50 ms on BOTH sides), or None"""
+    best = None
+    for m in range(max(1, a), min(len(db) - 1, b)):
+        left, right = max(db[max(0, m - 5):m]), max(db[m + 1:m + 6])
+        if db[m] <= min(left, right) - depth and (best is None or db[m] < db[best]):
+            best = m
+    return best
+
+
 def clean_onset(db, thr, s, lo):
-    """(onset, quiet_from): onset = where the voice of the word starting near s begins; quiet_from = where the
-    silence before it begins (a cut anywhere in [quiet_from, onset] is clean). lo = earliest allowed time (the middle
-    of the previous transcript word). If the words run together (no silence), both are the quietest frame."""
+    """(onset, quiet_from) for the word whisper starts at s.
+    onset = where its sound REALLY begins, soft first letters (s, f, h, th: quieter than the voice threshold)
+    included, so the first letter is never clipped; quiet_from = where the silence before it begins (any cut in
+    [quiet_from, onset] is clean). lo = earliest allowed time (about the end of the previous transcript word).
+    No silence before the word (it runs on from the previous one): both = the quietest point between the two."""
     n = len(db)
+    soft = thr - SOFT_DB
     i = min(n - 1, int((s + 0.03) / HOP))
     i_lo = max(0, int(lo / HOP))
     if db[i] <= thr:     # the word really starts later than whisper says: find its first voiced frame
@@ -165,28 +196,33 @@ def clean_onset(db, thr, s, lo):
             k += 1
         if db[k] > thr:
             i = k
-    # walk back through the word's own (voiced) start
-    while i > i_lo and db[i - 1] > thr:
+    lim = max(i_lo, int((s - TOL) / HOP))
+    while i > lim and db[i - 1] > thr:          # 1. back through the voiced start of the word
         i -= 1
-    onset_i = i
-    # now walk back through silence; it must last QUIET_RUN frames to count
-    j = onset_i
-    while j > i_lo and db[j - 1] <= thr:
-        j -= 1
-    if onset_i - j >= QUIET_RUN:
-        return onset_i * HOP, j * HOP
-    k0, k1 = i_lo, min(n, int((s + 0.03) / HOP) + 1)
-    if k1 <= k0:
-        return s, s
-    m = k0 + int(np.argmin(db[k0:k1]))
+    if i == lim and i > 0 and db[i - 1] > thr:  # still voiced: it runs on from the previous word
+        m = _deep_dip(db, max(i_lo, int((s - 0.12) / HOP)), int((s + 0.10) / HOP))
+        if m is None:
+            m = _dip(db, max(i_lo, int((s - 0.12) / HOP)), int((s + 0.03) / HOP) + 1)
+        return m * HOP, m * HOP
+    k = i                                        # 2. back through a soft first letter (between soft and thr)
+    while k > max(i_lo, i - int(SOFT_MAX / HOP)) and soft < db[k - 1] <= thr:
+        k -= 1
+    if k > 0 and db[k - 1] <= soft:              # 3a. real silence before it: clean
+        j = k
+        while j > i_lo and db[j - 1] <= thr - 3:
+            j -= 1
+        return k * HOP, j * HOP
+    # 3b. no silence (another sound right before, or noise): cut at the quietest point between that and the word
+    m = _dip(db, k, i + 1)
     return m * HOP, m * HOP
 
 
 def clean_offset(db, thr, e, hi):
-    """(offset, quiet_to): offset = where the voice of the word ending near e stops; quiet_to = where the silence
-    after it ends (a cut anywhere in [offset, quiet_to] is clean). hi = latest allowed time (middle of the next
-    transcript word). Run-together words: both are the quietest frame."""
+    """(offset, quiet_to) for the word whisper ends at e: mirror image of clean_onset. offset includes a soft tail
+    (s, t, breathy end) so the last letter is never clipped, and it never runs on into the next word: when the
+    sound keeps going, the cut is the quietest point between the two words."""
     n = len(db)
+    soft = thr - SOFT_DB
     i = max(0, int((e - 0.03) / HOP))
     i_hi = min(n, int(hi / HOP))
     if db[i] <= thr:     # the word really ended earlier than whisper says: back up to its last voiced frame
@@ -195,18 +231,27 @@ def clean_offset(db, thr, e, hi):
             k -= 1
         if db[k] > thr:
             i = k
-    while i < i_hi - 1 and db[i + 1] > thr:
+    lim = min(i_hi - 1, int((e + TOL) / HOP))
+    while i < lim and db[i + 1] > thr:
         i += 1
-    off_i = i + 1
-    j = off_i
-    while j < i_hi and db[j] <= thr:
-        j += 1
-    if j - off_i >= QUIET_RUN:
-        return off_i * HOP, j * HOP
-    k0, k1 = max(0, int((e - 0.03) / HOP)), i_hi
-    if k1 <= k0:
-        return e, e
-    m = k0 + int(np.argmin(db[k0:k1]))
+    if i == lim and i + 1 < n and db[i + 1] > thr:
+        m = _deep_dip(db, int((e - 0.10) / HOP), min(i_hi, int((e + 0.12) / HOP)) + 1)
+        if m is None:
+            m = _dip(db, int((e - 0.06) / HOP), min(i_hi, int((e + 0.12) / HOP)) + 1)
+        return m * HOP, m * HOP
+    if i > int((e + 0.05) / HOP):                # ran on well past whisper's end: maybe that was the next word
+        m = _deep_dip(db, int((e - 0.08) / HOP), i + 1)
+        if m is not None:
+            return m * HOP, m * HOP
+    k = i
+    while k < min(i_hi - 1, i + int(SOFT_MAX / HOP)) and soft < db[k + 1] <= thr:
+        k += 1
+    if k + 1 < n and db[k + 1] <= soft:
+        j = k + 1
+        while j < i_hi and db[j] <= thr - 3:
+            j += 1
+        return (k + 1) * HOP, j * HOP
+    m = _dip(db, i, k + 2)
     return m * HOP, m * HOP
 
 
