@@ -157,7 +157,7 @@ they should not have to log in again.
 `PY -m reel_editor agent-docs` writes CLAUDE.md + AGENTS.md tuned to what they chose (B-roll source, storage,
 Claude plan vs API key, Telegram on/off, OS): rules, limits and fixes for THEIR stack only. It also writes
 `telegram-agent/CLAUDE.md` + `AGENTS.md`: the personality and commands (/help /status /cancel /model /compact
-/style /privacy) for an AI agent that chats with them on Telegram. Run it again whenever a setting changes.
+/style /privacy /envato) for an AI agent that chats with them on Telegram. Run it again whenever a setting changes.
 Only the GENERATED block is replaced; never put names, keys, tokens or user ids in these files.
 
 ## 6. Learn their style (offer this once setup works)
@@ -184,7 +184,8 @@ Never put personal details into a STYLE.md.
 - Telegram (optional): token from @BotFather -> `config set TELEGRAM_BOT_TOKEN -`; they send /start to the bot,
   it replies with their user id -> `config set TELEGRAM_ALLOWED_USER_IDS <id>`; run `PY -m reel_editor bot`, then
   `PY -m reel_editor agent-docs`. Typing "/" in the bot shows its commands: /help, /status (what it is editing and
-  for how long), /cancel (stops the running edit and clears the queue), /model, /style, /privacy. Each edit has a
+  for how long), /cancel (stops the running edit and clears the queue), /model, /style, /privacy, /envato (saves
+  the Envato login encrypted and deletes the messages). Each edit has a
   hard cap (`EDIT_TIMEOUT_MIN`, default 45).
 - Telegram through an AI agent instead (Claude Code Telegram channel, Hermes Agent gateway, or another bridge):
   run the agent with `telegram-agent/` as its working folder so it loads `telegram-agent/CLAUDE.md` / `AGENTS.md`.

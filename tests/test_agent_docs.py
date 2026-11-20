@@ -48,3 +48,9 @@ def test_write_all_writes_four_files(tmp_path, monkeypatch):
     paths = A.write_all()
     assert len(paths) == 4 and all(os.path.exists(p) for p in paths)
     assert os.path.exists(tmp_path / "telegram-agent" / "CLAUDE.md")
+
+
+def test_telegram_agent_lists_envato_command(monkeypatch):
+    _env(monkeypatch, "envato", "local", "auto", True)
+    tele = A.telegram_doc(A.setup())
+    assert "/envato" in tele and "vault set" in tele
