@@ -118,7 +118,7 @@ paths, hardware encoder only when available, libx264 elsewhere) and has installe
 - Editor browser (`browser` command): starting Canary with its permanent profile, status and the background
   service are unit-tested; the automatic Envato sign-in with a saved login has NOT been run against Envato's
   live sign-in page (it cannot pass 2-step codes or captchas; then log in once with `browser login envato`).
-- Envato login vault (`vault`, Telegram `/envato`): AES-256-GCM, master key in the OS keychain (tested live on
+- Envato login vault (`vault`): AES-256-GCM, master key in the OS keychain (tested live on
   macOS Keychain; Windows Credential Manager and Linux Secret Service not yet run). Headless Linux without a
   keychain falls back to a mode-600 key file: that keeps the login out of the repo, logs and chat, but someone
   already logged in as that user on the server could read it.
