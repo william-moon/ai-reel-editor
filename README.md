@@ -17,7 +17,7 @@ clips). Everything else is free, open-source software running on your computer o
 
 Tell your agent (Claude Code, a Telegram bot running Claude Code on a VPS, or Hermes Agent):
 
-> Install this repo: https://github.com/<you>/ai-reel-editor and set it up for me.
+> Install this repo: https://github.com/william-moon/ai-reel-editor and set it up for me.
 
 It follows [`SKILL.md`](SKILL.md): installs everything, asks you two questions (where B-roll comes from, where
 videos go), walks you through two free API keys, makes a test edit and reports back.
