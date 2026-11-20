@@ -64,7 +64,7 @@ load_env()
 
 
 def env(key, default=""):
-    return os.environ.get(key, default)
+    return os.environ.get(key) or default          # an empty value in .env means "use the default"
 
 
 def env_path(key, default):
@@ -100,7 +100,7 @@ BROLL_SOURCE = env("BROLL_SOURCE", "stock")          # stock (Pexels + Pixabay) 
 ENVATO_CDP = env("ENVATO_CDP", "http://127.0.0.1:9222")
 
 # ---- storage
-STORAGE = env("STORAGE", "local")                    # local | gdrive
+STORAGE = env("STORAGE", "gdrive")                   # gdrive (default, confirmed at setup) | local
 LOCAL_ROOT = env_path("LOCAL_ROOT", os.path.join(os.path.expanduser("~"), "ReelEditor"))
 GDRIVE_REMOTE = env("GDRIVE_REMOTE", "gdrive")
 RAW_FOLDER = env("RAW_FOLDER", "Raw Videos")

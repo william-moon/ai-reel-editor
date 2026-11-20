@@ -35,11 +35,14 @@ Work from the repo folder (the folder containing this file). Commands below use 
 >   b) Envato - only if you already pay for Envato (uses your own logged-in browser)
 >   c) None - no stock footage, just captions, stickers, text cards and zooms
 >
-> **2) Where should videos go in and out?**
->   a) Google Drive - I create "Raw Videos" and "Finished Videos" folders in your Drive (Google shows one "Allow" page)
->   b) A folder on this computer - nothing to click
+> **2) Where should videos go in and out?** I'll use **Google Drive** unless you'd rather not - OK?
+>   a) Google Drive (default) - I create "Raw Videos" and "Finished Videos" folders in your Drive (Google shows
+>      one "Allow" page). Drop videos from your phone or computer, get finished reels back in Drive.
+>   b) A folder on this computer instead - nothing to click
 
-Default to 1a and 2b if they say "you pick".
+Google Drive is the default (`STORAGE=gdrive`), but ALWAYS get a yes on it before setting it up: never connect
+their Drive without that confirmation. If they say "you pick", use 1a and say you will use Google Drive, then
+wait for their OK. If they decline Drive, use 2b.
 
 ## 3a. B-roll = Pexels + Pixabay (`BROLL_SOURCE=stock`, the default)
 
@@ -66,7 +69,7 @@ Envato's licence terms (downloads are licensed per project).
 
 `PY -m reel_editor config set BROLL_SOURCE none`
 
-## 4a. Storage = Google Drive
+## 4a. Storage = Google Drive (default, after they confirm)
 
 1. Install rclone: `./install.sh --with-rclone` (Windows: `install.ps1 -WithRclone`).
 2. Desktop with a browser: `PY -m reel_editor storage-setup gdrive` - rclone opens Google's consent page; the
@@ -94,6 +97,14 @@ Envato's licence terms (downloads are licensed per project).
    (length before/after, Claude cost from `- claude-usage.json`), and how to use it (section 7). Send them the test
    video if you can.
 
+## 5b. Write their agent files (always do this)
+
+`PY -m reel_editor agent-docs` writes CLAUDE.md + AGENTS.md tuned to what they chose (B-roll source, storage,
+Claude plan vs API key, Telegram on/off, OS): rules, limits and fixes for THEIR stack only. It also writes
+`telegram-agent/CLAUDE.md` + `AGENTS.md`: the personality and commands (/help /status /cancel /model /compact
+/style /privacy) for an AI agent that chats with them on Telegram. Run it again whenever a setting changes.
+Only the GENERATED block is replaced; never put names, keys, tokens or user ids in these files.
+
 ## 6. Learn their style (offer this once setup works)
 
 Ask for 3-10 of their own finished, posted reels (the more typical the better). Put them in a folder and run:
@@ -116,7 +127,12 @@ Never put personal details into a STYLE.md.
   (steps: transcribe, takes, spans, sync, captions, visuals, render; each step's JSON in the work dir can be
   hand-edited, e.g. swap a B-roll clip in `visuals.json`).
 - Telegram (optional): token from @BotFather -> `config set TELEGRAM_BOT_TOKEN -`; they send /start to the bot,
-  it replies with their user id -> `config set TELEGRAM_ALLOWED_USER_IDS <id>`; run `PY -m reel_editor bot`.
+  it replies with their user id -> `config set TELEGRAM_ALLOWED_USER_IDS <id>`; run `PY -m reel_editor bot`, then
+  `PY -m reel_editor agent-docs`. Typing "/" in the bot shows its commands: /help, /status (what it is editing and
+  for how long), /cancel (stops the running edit and clears the queue), /model, /style, /privacy. Each edit has a
+  hard cap (`EDIT_TIMEOUT_MIN`, default 45).
+- Telegram through an AI agent instead (Claude Code Telegram channel, Hermes Agent gateway, or another bridge):
+  run the agent with `telegram-agent/` as its working folder so it loads `telegram-agent/CLAUDE.md` / `AGENTS.md`.
   Bots can only download 20 MB from Telegram: big raw files go in the "Raw Videos" folder instead.
 
 ## Rules for you

@@ -10,6 +10,15 @@ Flow: send the video AS A FILE (paperclip -> File) so Telegram does not compress
 first. The bot edits it and sends it back with [Approve] [Change something]. Approve -> the files go to your
 "Finished Videos" folder. Change -> your next message is the list of changes and the video is re-edited.
 
+Commands (also shown in Telegram's "/" menu):
+  /help     what the bot does + the commands
+  /status   what it is editing right now, for how long, and what is queued
+  /cancel   stop the edit running now AND clear the queue
+  /model    show the Claude models the editor uses (/model <id> switches the main one, /model reset undoes it)
+  /style    show the active edit style (/style <name> switches to styles/<name>/STYLE.md)
+  /privacy  where your videos, keys and transcripts live
+Each edit has a hard time cap (EDIT_TIMEOUT_MIN in .env, default 45 minutes) so a stuck edit cannot run forever.
+
 Size limit: Telegram's cloud Bot API lets bots download files up to 20 MB and send up to 50 MB. For bigger raw
 videos either drop them in the "Raw Videos" folder instead (the watcher picks them up), or run Telegram's own
 local Bot API server (https://github.com/tdlib/telegram-bot-api, up to 2 GB) and set TELEGRAM_API_BASE to it.
@@ -17,6 +26,8 @@ local Bot API server (https://github.com/tdlib/telegram-bot-api, up to 2 GB) and
 import json
 import os
 import queue
+import signal
+import sys
 import re
 import subprocess
 import threading
@@ -26,7 +37,6 @@ import urllib.request
 import uuid
 
 from . import config as C
-from . import studio
 from .storage import get_storage
 
 API = C.env("TELEGRAM_API_BASE", "https://api.telegram.org").rstrip("/")
@@ -101,6 +111,48 @@ def preview(final, out, max_mb=45):
     return out
 
 
+EDIT_TIMEOUT = int(C.env("EDIT_TIMEOUT_MIN", "45") or 45) * 60
+MODEL_ID = re.compile(r"^claude-[a-z0-9][a-z0-9.-]{2,60}$")
+COMMANDS = [
+    ("help", "What I do and my commands"),
+    ("status", "What I'm editing now, how long, what's queued"),
+    ("cancel", "Stop the edit running now and clear the queue"),
+    ("model", "Show or switch the Claude model the editor uses"),
+    ("style", "Show or switch the edit style"),
+    ("privacy", "Where your videos and keys live"),
+]
+HELP = ("I'm your reel editor. Send me a raw video AS A FILE (paperclip -> File) and I send back the finished "
+        "reel with [Approve] [Change something]. Send a thumbnail image first if you want one.\n\n"
+        "Commands:\n"
+        "/status - what I'm editing now, how long, and what's queued\n"
+        "/cancel - stop the edit running now and clear the queue\n"
+        "/model - show the Claude models I use (/model <id> to switch, /model reset to undo)\n"
+        "/style - show the active style (/style <name> to switch)\n"
+        "/privacy - where your videos and keys live")
+
+
+def fmt(sec):
+    sec = int(sec)
+    return f"{sec // 60}:{sec % 60:02d}"
+
+
+def styles():
+    root = os.path.join(C.ROOT, "styles")
+    return sorted(d for d in os.listdir(root) if os.path.exists(os.path.join(root, d, "STYLE.md")))
+
+
+def active_style():
+    return os.path.basename(os.path.dirname(os.environ.get("STYLE_FILE") or C.STYLE_FILE))
+
+
+def set_setting(key, value):
+    C.set_env_value(key, value)
+    if value:
+        os.environ[key] = value
+    else:
+        os.environ.pop(key, None)
+
+
 class Bot:
     def __init__(self):
         self.q = queue.Queue()
@@ -108,9 +160,15 @@ class Bot:
         self.pending_thumb = {}
         self.wait_notes = {}    # chat -> job id
         self.store = get_storage()
+        self.current = None     # {jid, proc, started}
+        self.cancelled = set()
 
     def run(self):
         me = api("getMe")
+        try:
+            api("setMyCommands", {"commands": [{"command": c, "description": d} for c, d in COMMANDS]})
+        except Exception as ex:
+            print("could not set the / menu:", str(ex)[:120])
         print(f"bot @{me.get('username')} running ({'local' if LOCAL_API else 'cloud'} Bot API)")
         threading.Thread(target=self.worker, daemon=True).start()
         offset = 0
@@ -138,17 +196,20 @@ class Bot:
                 say(chat, f"Your Telegram user id is {user}. Add it to TELEGRAM_ALLOWED_USER_IDS in the editor's .env "
                           "and restart the bot to use it.")
             return
-        text = m.get("text") or ""
-        if text.startswith("/start"):
-            say(chat, "Send me a raw video AS A FILE (paperclip -> File) and I'll edit it. Send a thumbnail image "
-                      "first if you want one on the first frames.")
-            return
-        if text.startswith("/status"):
-            say(chat, f"{self.q.qsize()} video(s) waiting, {len(self.jobs)} job(s) this session.")
-            return
+        text = (m.get("text") or "").strip()
+        if text.startswith("/"):
+            cmd, _, arg = text.partition(" ")
+            cmd = cmd.split("@")[0].lower()
+            handler = {"/start": self.cmd_help, "/help": self.cmd_help, "/status": self.cmd_status,
+                       "/cancel": self.cmd_cancel, "/model": self.cmd_model, "/style": self.cmd_style,
+                       "/privacy": self.cmd_privacy}.get(cmd)
+            if handler:
+                handler(chat, arg.strip())
+                return
         if chat in self.wait_notes and text:
             jid = self.wait_notes.pop(chat)
             self.jobs[jid]["notes"] = (self.jobs[jid].get("notes", "") + "\n" + text).strip()
+            self.cancelled.discard(jid)
             self.q.put(jid)
             say(chat, "Got it, re-editing with your changes.")
             return
@@ -176,8 +237,73 @@ class Bot:
             name = re.sub(r"[^\w.-]+", "-", doc.get("file_name") or f"video-{jid}.mp4")
             src = download(doc["file_id"], os.path.join(jd, name))
             self.jobs[jid] = {"chat": chat, "src": src, "thumb": self.pending_thumb.pop(chat, None), "dir": jd}
+            self.cancelled.discard(jid)
             self.q.put(jid)
             say(chat, f"Queued ({self.q.qsize()} ahead incl. this one). I'll send it back when it's done.")
+
+    def cmd_help(self, chat, arg):
+        say(chat, HELP)
+
+    def cmd_status(self, chat, arg):
+        cur = self.current
+        lines = []
+        if cur:
+            name = os.path.basename(self.jobs[cur["jid"]]["src"])
+            lines.append(f"Editing {name} for {fmt(time.time() - cur['started'])} "
+                         f"(cap {EDIT_TIMEOUT // 60} min).")
+        else:
+            lines.append("Not editing anything right now.")
+        lines.append(f"{self.q.qsize()} video(s) waiting.")
+        say(chat, " ".join(lines))
+
+    def cmd_cancel(self, chat, arg):
+        dropped = 0
+        while True:
+            try:
+                self.cancelled.add(self.q.get_nowait())
+                dropped += 1
+            except queue.Empty:
+                break
+        self.wait_notes.pop(chat, None)
+        cur = self.current
+        if cur:
+            self.cancelled.add(cur["jid"])
+            kill(cur["proc"])
+        say(chat, ("Stopped the edit I was working on" if cur else "Nothing was running") +
+            f" and cleared {dropped} queued video(s).")
+
+    def cmd_model(self, chat, arg):
+        if arg.lower() == "reset":
+            set_setting("MODEL_SMART", "")
+            say(chat, "Back to the default model.")
+        elif arg:
+            if not MODEL_ID.match(arg):
+                say(chat, "That does not look like a Claude model id (example: claude-opus-5-5). Nothing changed.")
+                return
+            set_setting("MODEL_SMART", arg)
+            say(chat, f"Main model is now {arg} from the next edit. If edits start failing, send /model reset.")
+        smart = os.environ.get("MODEL_SMART") or C.MODEL_SMART
+        fast = os.environ.get("MODEL_FAST") or C.MODEL_FAST
+        if not arg:
+            say(chat, f"Main (judgment) model: {smart}\nFast (routine) model: {fast}\n"
+                      f"Brain: {C.env('CLAUDE_MODE', 'auto')} (auto = Claude Code on your plan, api = API key)")
+
+    def cmd_style(self, chat, arg):
+        have = styles()
+        if arg:
+            if arg not in have:
+                say(chat, f"No style called {arg}. Styles: {', '.join(have)}")
+                return
+            set_setting("STYLE_FILE", os.path.join("styles", arg, "STYLE.md"))
+        say(chat, f"Active style: {active_style()}. Styles: {', '.join(have)}. "
+                  "To learn a new one, send your past reels to your AI agent and ask it to learn your style.")
+
+    def cmd_privacy(self, chat, arg):
+        where = "your Google Drive" if C.STORAGE == "gdrive" else "folders on the computer running me"
+        say(chat, "Your videos are edited on the computer or server running me and delivered to " + where + ". "
+                  "Keys stay in the editor's .env file and are never sent in chat. Claude sees the transcript and "
+                  "a few still frames to make editing choices. Work files with the transcript are deleted after "
+                  "you approve. Only the Telegram user ids in TELEGRAM_ALLOWED_USER_IDS can use me.")
 
     def on_button(self, cq):
         api("answerCallbackQuery", {"callback_query_id": cq["id"]})
@@ -198,16 +324,64 @@ class Bot:
     def worker(self):
         while True:
             jid = self.q.get()
+            if jid in self.cancelled:
+                continue
             j = self.jobs[jid]
             try:
-                stem = os.path.splitext(os.path.basename(j["src"]))[0]
-                res = studio.edit(j["src"], out=os.path.join(j["dir"], f"{stem} - edited.mp4"), thumb=j.get("thumb"),
-                                  work=os.path.join(j["dir"], "work"), notes=j.get("notes", ""),
-                                  redo=["takes"] if j.get("notes") else ())
-                j["result"] = res
-                self.send_result(jid, res)
+                res = self.run_edit(jid, j)
+                if res:
+                    j["result"] = res
+                    self.send_result(jid, res)
             except Exception as ex:
                 say(j["chat"], f"The edit failed: {str(ex)[:300]}")
+            finally:
+                self.current = None
+
+    def run_edit(self, jid, j):
+        stem = os.path.splitext(os.path.basename(j["src"]))[0]
+        result_file = os.path.join(j["dir"], "result.json")
+        cmd = [sys.executable, "-m", "reel_editor", "edit", j["src"],
+               "--out", os.path.join(j["dir"], f"{stem} - edited.mp4"), "--work", os.path.join(j["dir"], "work"),
+               "--result-json", result_file]
+        if j.get("thumb"):
+            cmd += ["--thumb", j["thumb"]]
+        if j.get("notes"):
+            cmd += ["--notes", j["notes"], "--redo", "takes"]
+        log = open(os.path.join(j["dir"], "edit.log"), "w")
+        proc = subprocess.Popen(cmd, cwd=C.ROOT, stdout=log, stderr=subprocess.STDOUT,
+                                start_new_session=(os.name != "nt"))
+        started = time.time()
+        self.current = {"jid": jid, "proc": proc, "started": started}
+        msg = say(j["chat"], "Editing... 0:00")
+        mid = (msg or {}).get("message_id")
+        last = 0
+        while proc.poll() is None:
+            time.sleep(2)
+            el = time.time() - started
+            if el > EDIT_TIMEOUT:
+                kill(proc)
+                say(j["chat"], f"The edit hit the {EDIT_TIMEOUT // 60}-minute limit and was stopped. "
+                               "Try a shorter video, or raise EDIT_TIMEOUT_MIN.")
+                return None
+            if mid and el - last >= 15:
+                last = el
+                try:
+                    api("editMessageText", {"chat_id": j["chat"], "message_id": mid, "text": f"Editing... {fmt(el)}"})
+                except Exception:
+                    pass
+        log.close()
+        if jid in self.cancelled:
+            return None
+        if mid:
+            try:
+                api("editMessageText", {"chat_id": j["chat"], "message_id": mid,
+                                        "text": f"Done in {fmt(time.time() - started)}"})
+            except Exception:
+                pass
+        if proc.returncode != 0 or not os.path.exists(result_file):
+            tail = open(os.path.join(j["dir"], "edit.log"), errors="replace").read()[-300:]
+            raise RuntimeError(tail or f"exit code {proc.returncode}")
+        return json.load(open(result_file))
 
     def send_result(self, jid, res):
         j = self.jobs[jid]
@@ -219,7 +393,7 @@ class Bot:
                " ".join(post.get("hashtags", [])))[:1000]
         qa = res.get("qa") or []
         cap += "\n\nFinal check: " + ("passed" if not qa else "; ".join(qa))[:200]
-        cap += f"\nClaude cost: ${res['usage'].get('cost_usd', 0):.2f}"
+        cap += f"\nClaude cost: ${(res.get('usage') or {}).get('cost_usd', 0):.2f}"
         send = out
         if os.path.getsize(out) > OUT_LIMIT:
             send = preview(out, os.path.join(j["dir"], "preview.mp4"))
@@ -228,6 +402,18 @@ class Bot:
                {"text": "Change something", "callback_data": f"change:{jid}"}]]
         api("sendDocument", {"chat_id": j["chat"], "caption": cap, "reply_markup": json.dumps({"inline_keyboard": kb})},
             files={"document": send}, timeout=900)
+
+
+def kill(proc):
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        else:
+            os.killpg(proc.pid, signal.SIGKILL)
+    except Exception:
+        proc.kill()
 
 
 def main():

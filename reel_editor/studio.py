@@ -1528,9 +1528,13 @@ def main(argv=None):
     ap.add_argument("--until", choices=STEPS)
     ap.add_argument("--redo", nargs="*", default=[], choices=STEPS)
     ap.add_argument("--clean", action="store_true", help="delete the work dir when done")
+    ap.add_argument("--result-json", help="also write the full result (incl. Claude usage) to this file")
     a = ap.parse_args(argv)
     res = edit(a.input, a.out, a.thumb, a.work, a.style, a.notes, a.until, a.redo, a.caption_theme, a.broll,
                keep_work=not a.clean)
+    if a.result_json:
+        with open(a.result_json, "w") as fh:
+            json.dump(res, fh, indent=1, default=str)
     print(json.dumps({k: v for k, v in res.items() if k != "usage"}, indent=1))
 
 

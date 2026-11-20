@@ -11,6 +11,7 @@
   learn-style <folder> --name N [--activate]   learn a style from finished reels -> styles/N/STYLE.md
   watch [--once]                    edit everything dropped into "Raw Videos"
   bot                               run the optional Telegram bot
+  agent-docs [--print]              write CLAUDE.md / AGENTS.md tuned to this setup (repo + telegram-agent/)
   motion-check <video>              camera smoothness QA
   clean <work dir>                  delete a work dir (holds transcript-derived files)
 """
@@ -189,6 +190,9 @@ def main(argv=None):
         from .bot import main as bot_main
         bot_main()
         return 0
+    if cmd == "agent-docs":
+        from .agent_docs import main as ad
+        return ad(rest)
     if cmd == "motion-check":
         from .motion_check import main as mc
         return mc(rest)
