@@ -38,7 +38,7 @@ videos go), walks you through two free API keys, makes a test edit and reports b
 | **Pillow** | Draws captions, stickers and text cards | free |
 | **rclone** | Connects the Google Drive "Raw Videos" / "Finished Videos" folders | free (optional) |
 | **Telegram bot** | Send a video from your phone, get the edit back, tap Approve / Change | free (optional) |
-| **Envato adapter** | Uses your own paid Envato account through your own logged-in browser | your subscription (optional) |
+| **Envato adapter** | Envato has no download API, so it uses your own paid account in the editor's own Chrome Canary (log in once, the login is kept permanently) | your subscription (optional) |
 
 ## Manual install
 
@@ -115,6 +115,9 @@ paths, hardware encoder only when available, libx264 elsewhere) and has installe
   with mocked responses; a real keyed search runs during setup (`test-keys`).
 - Linux and Windows installers and the Telegram bot, Google Drive OAuth and Envato adapter have not been run on
   real accounts/machines yet by the authors: please report issues.
+- Editor browser (`browser` command): starting Canary with its permanent profile, status and the background
+  service are unit-tested; the automatic Envato sign-in with a saved login has NOT been run against Envato's
+  live sign-in page (it cannot pass 2-step codes or captchas; then log in once with `browser login envato`).
 - Captions and post copy assume English by default (`LANGUAGE` in `.env` changes the speech recognizer; the Claude
   prompts are in English).
 - Telegram's cloud Bot API limits bots to 20 MB downloads: use the Raw Videos folder (or a self-hosted Bot API

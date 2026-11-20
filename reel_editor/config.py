@@ -97,7 +97,12 @@ def claude_cli():
 
 # ---- B-roll
 BROLL_SOURCE = env("BROLL_SOURCE", "stock")          # stock (Pexels + Pixabay) | envato | none
-ENVATO_CDP = env("ENVATO_CDP", "http://127.0.0.1:9222")
+# The editor's own browser (Chrome Canary, permanent profile) for sites without an API: see reel_editor/browser.py.
+# Port 9333 so it never takes over a debugging browser the person already runs on 9222.
+BROWSER_CDP = env("BROWSER_CDP", "") or env("ENVATO_CDP", "") or "http://127.0.0.1:9333"
+BROWSER_PROFILE = env("BROWSER_PROFILE", "~/.ai-reel-editor/browser-profile")
+BROWSER_BIN = env("BROWSER_BIN", "")
+ENVATO_CDP = BROWSER_CDP          # old name, still honoured
 
 # ---- storage
 STORAGE = env("STORAGE", "gdrive")                   # gdrive (default, confirmed at setup) | local

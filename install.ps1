@@ -45,6 +45,9 @@ if ($WithEnvato) {
   Say "Envato adapter (Node.js)"
   if (-not (Have node)) { winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements; Refresh-Path }
   Push-Location tools; npm install --silent; Pop-Location
+  if (-not (Test-Path "$env:LOCALAPPDATA\Google\Chrome SxS\Application\chrome.exe")) {
+    winget install -e --id Google.Chrome.Canary --accept-source-agreements --accept-package-agreements
+  }
 }
 
 if (-not (Test-Path .env)) { Copy-Item .env.example .env; Write-Host "created .env" }

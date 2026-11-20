@@ -5,6 +5,8 @@
   config set KEY VALUE|-            save a setting in .env ("-" reads the value from stdin; values never printed)
   config show                       list which settings are set (values hidden)
   test-keys                         real test search on Pexels / Pixabay with the keys in .env
+  browser login|start|stop|status|keepalive|install-service [envato]
+                                    the editor's own Chrome Canary (permanent login) for sites with no API
   storage-setup [local|gdrive] [--token JSON]   create "Raw Videos" + "Finished Videos"
   sample [out.mp4]                  make a ~20 s test recording
   edit <video> [options]            edit one video (see: edit --help)
@@ -25,7 +27,7 @@ import urllib.request
 
 from . import config as C
 
-SECRET_KEYS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
+SECRET_KEYS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "EMAIL")
 ASSETS = {
     C.FACE_MODEL: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/"
                   "face_landmarker.task",
@@ -102,7 +104,16 @@ def doctor(brain_test=False):
         row(True if k else None, "B-roll: Pexels + Pixabay", ", ".join(k) + " set" if k else "no keys yet (python -m reel_editor "
                                                                                  "test-keys after adding them)")
     elif src == "envato":
-        row(C.have("node"), "B-roll: Envato (your own browser session)", "needs node + npm install in tools/")
+        from . import browser
+        exe = browser.find_browser()
+        row(C.have("node") and os.path.isdir(os.path.join(C.ROOT, "tools", "node_modules")), "B-roll: Envato adapter",
+            "ok" if C.have("node") else "needs node + npm install in tools/ (./install.sh --with-envato)")
+        row(bool(exe), "editor browser", ("Chrome Canary" if browser.is_canary(exe) else exe) if exe else
+            "install Chrome Canary: https://www.google.com/chrome/canary/")
+        if exe:
+            li = browser.logged_in("envato")
+            row(True if li else None, "Envato login (editor browser)",
+                "logged in" if li else "python -m reel_editor browser login envato")
     else:
         row(None, "B-roll", "none (stickers, text cards and punch-ins only)")
     st = C.STORAGE
@@ -162,6 +173,9 @@ def main(argv=None):
             print("no PEXELS_API_KEY / PIXABAY_API_KEY in .env")
             return 1
         return 0 if all(v is not False for v in res.values()) else 1
+    if cmd == "browser":
+        from .browser import main as br
+        return br(rest)
     if cmd == "storage-setup":
         from .storage import get_storage
         name = rest[0] if rest and not rest[0].startswith("--") else C.STORAGE

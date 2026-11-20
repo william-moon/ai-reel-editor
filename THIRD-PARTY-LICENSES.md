@@ -25,7 +25,7 @@ unmodified and keep their internal names.
 | `models/sh.rnnn` (voice denoise model) | rnnoise-models by GregorR (somnolent-hogwash) | The model author states the trained models are not subject to copyright |
 | Speech recognition model (Whisper large-v3-turbo, CTranslate2 conversion) | OpenAI Whisper via faster-whisper / Hugging Face | MIT |
 | Stock B-roll clips | Pexels (https://www.pexels.com/license/) and Pixabay (https://pixabay.com/service/license-summary/) | Free to use, including commercially, no attribution required; you may not resell or redistribute the clips unaltered or imply endorsement. Pixabay forbids hotlinking, so clips are downloaded and cached locally. A credits file is written next to every finished video anyway. Check the current terms yourself. |
-| Envato clips (optional adapter) | Your own Envato subscription, through your own logged-in browser | Envato licence terms (licensed per project). Check them yourself. |
+| Envato clips (optional adapter) | Your own Envato subscription, through the editor's own logged-in Chrome Canary | Envato licence terms (licensed per project). Check them yourself. |
 
 ## Python packages (installed by pip, not bundled)
 

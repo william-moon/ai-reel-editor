@@ -66,6 +66,10 @@ if [ "$WITH_ENVATO" = 1 ]; then
   say "Envato adapter (Node.js)"
   have node || pkg_install node nodejs nodejs
   (cd tools && npm install --silent)
+  # the editor's own browser (Chrome Canary, permanent login profile). Linux has no Canary: Chrome/Chromium is used.
+  if [ "$(uname)" = "Darwin" ] && [ ! -d "/Applications/Google Chrome Canary.app" ] && have brew; then
+    brew install --cask google-chrome@canary || echo "(install Chrome Canary: https://www.google.com/chrome/canary/)"
+  fi
 fi
 
 # a Linux box without a desktop TTS voice can still make the test sample

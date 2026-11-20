@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // OPTIONAL Envato stock-video adapter. It drives YOUR OWN logged-in Chrome session (remote debugging / CDP,
-// default http://127.0.0.1:9222, override with ENVATO_CDP) and uses YOUR paid Envato subscription.
+// the editor's own Chrome Canary, BROWSER_CDP, default http://127.0.0.1:9333) and uses YOUR paid Envato subscription.
 // Check Envato's licence terms for how downloaded items may be used (each download is licensed to a project).
-// Needs: npm install playwright-core (in this tools/ folder), Chrome started with --remote-debugging-port=9222
-// and logged in to app.envato.com.
+// Needs: npm install playwright-core (in this tools/ folder) and the editor browser logged in once:
+//   python -m reel_editor browser login envato
 //   envato_video.mjs search "<terms>" [--orientation vertical|horizontal|any] [--limit 20] [--json]
 //   envato_video.mjs download <id> --out <dir> [--res 1080|4k|best]    (default 1080p, falls back to best available)
 //   envato_video.mjs thumb <id> --out <file.jpg>
@@ -13,7 +13,7 @@ import { mkdirSync, existsSync, readdirSync, statSync, renameSync, writeFileSync
 import { execFileSync } from 'node:child_process';
 import { join, extname, basename, resolve } from 'node:path';
 
-const CDP = process.env.ENVATO_CDP || 'http://127.0.0.1:9222';
+const CDP = process.env.BROWSER_CDP || process.env.ENVATO_CDP || 'http://127.0.0.1:9333';
 const [cmd, ...rest] = process.argv.slice(2);
 const flags = {}; const pos = [];
 for (let i = 0; i < rest.length; i++) {
@@ -25,7 +25,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 async function withPage(fn) {
   let browser;
-  try { browser = await chromium.connectOverCDP(CDP); } catch { die('Cannot reach automation Chrome at ' + CDP); }
+  try { browser = await chromium.connectOverCDP(CDP); } catch { die('BROWSER_DOWN: cannot reach the editor browser at ' + CDP + ' (run: python -m reel_editor browser start)'); }
   const ctx = browser.contexts()[0] || await browser.newContext();
   const page = await ctx.newPage();
   try { return await fn(page, ctx, browser); }
@@ -37,7 +37,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function checkLogin(page) {
   const u = page.url();
-  if (/login|signin|account\.envato/i.test(u)) die('Not logged in to Envato in the automation browser (landed on ' + u.split('?')[0] + ')');
+  if (/login|signin|account\.envato/i.test(u)) die('NOT_LOGGED_IN: Envato is logged out in the editor browser (run: python -m reel_editor browser login envato)');
 }
 
 async function search(terms, orientation, limit) {

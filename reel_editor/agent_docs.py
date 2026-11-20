@@ -66,9 +66,13 @@ def _broll(s):
     b = s["broll"]
     if b == "envato":
         return """## B-roll: Envato (the person's own subscription)
-- Clips come from the person's own Envato account through THEIR logged-in Chrome (remote debugging on
-  `ENVATO_CDP`, default port 9222). If searches fail, the usual cause is Chrome not running with remote debugging
-  or the Envato session logged out: ask them to open it and log in, nothing else.
+- Envato has no public download API, so clips come from the person's own Envato account through the editor's OWN
+  browser: Google Chrome Canary with a permanent profile (`BROWSER_PROFILE`, remote debugging on `BROWSER_CDP`).
+  The login is kept there permanently; `browser install-service` keeps it running and refreshes it daily.
+- If searches fail: run `python -m reel_editor browser status`. Not running: `browser start`. Logged out:
+  `browser keepalive` (signs back in if they saved their login), otherwise ask them once to run
+  `browser login envato` (desktop) or to save their login (`ENVATO_EMAIL` / `ENVATO_PASSWORD` via `config set ... -`).
+  Never echo or repeat those values.
 - Download stock footage only. Never press Envato's AI-generation buttons (they spend credits and are not stock).
 - Envato downloads are licensed per project: one licence per video. Keep the `- credits.txt` file with each
   finished video so they know which items each reel used.
@@ -85,7 +89,9 @@ def _broll(s):
         keys.append("Pixabay key missing: https://pixabay.com/api/docs/ (shown when logged in)")
     missing = ("\n- " + "\n- ".join(keys)) if keys else ""
     return f"""## B-roll: Pexels + Pixabay (free, searched together)
-- Both sites are searched at once and the best-matching clip wins. One working key is enough to keep editing.{missing}
+- Both sites are searched at once and the best-matching clip wins. Both have free official APIs (no browser login
+  needed). Keep BOTH keys set: two libraries give more and better picks. One key still works; if one is missing,
+  ask for it once and say why.{missing}
 - Limits: Pexels about 200 requests/hour and 20,000/month; Pixabay 100 requests per 60 seconds. The editor
   caches results and downloads, so normal use stays far below this. If you see HTTP 429, wait and retry later.
 - Pixabay asks that results are cached (not hot-linked) and downloaded to your own storage: the editor does this.

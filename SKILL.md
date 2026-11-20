@@ -31,8 +31,10 @@ Work from the repo folder (the folder containing this file). Commands below use 
 ## 2. Ask the two questions (one message, with your recommendation)
 
 > **1) Where should B-roll (stock footage) come from?**
->   a) Pexels + Pixabay together - free, recommended (I'll walk you through two free keys, ~3 minutes)
->   b) Envato - only if you already pay for Envato (uses your own logged-in browser)
+>   a) Pexels + Pixabay together - free, recommended (I'll set up both free keys with you, ~3 minutes; two
+>      libraries means more and better clips to choose from)
+>   b) Envato - only if you already pay for Envato (you log in once in the editor's own browser and it stays
+>      logged in)
 >   c) None - no stock footage, just captions, stickers, text cards and zooms
 >
 > **2) Where should videos go in and out?** I'll use **Google Drive** unless you'd rather not - OK?
@@ -46,6 +48,9 @@ wait for their OK. If they decline Drive, use 2b.
 
 ## 3a. B-roll = Pexels + Pixabay (`BROLL_SOURCE=stock`, the default)
 
+Always set up BOTH. They are searched together and the best clip wins, so two libraries give clearly better
+picks than one. Both have a free official API, so no browser login is needed for them.
+
 1. Open the key pages for them (on a desktop: `open URL` on macOS, `xdg-open URL` on Linux, `start URL` on
    Windows; on a VPS / Telegram bot: send the links):
    - Pexels: https://www.pexels.com/api/new/ - sign up / log in, fill the short form ("what are you building":
@@ -55,15 +60,42 @@ wait for their OK. If they decline Drive, use 2b.
 2. They paste each key to you. Save without echoing:
    `echo "<pexels key>" | PY -m reel_editor config set PEXELS_API_KEY -`
    `echo "<pixabay key>" | PY -m reel_editor config set PIXABAY_API_KEY -`
-3. Test: `PY -m reel_editor test-keys` (one real search each). If one fails, ask them to re-copy that key. One
-   working key is enough to continue.
+3. Test: `PY -m reel_editor test-keys` (one real search each). If one fails, ask them to re-copy that key.
+4. If they only gave one key, you can start editing, but ask once more for the other and say why (more and better
+   clips). Do not keep asking after that.
+5. Rule for any stock source: use its API when it has one. Only a site with NO API goes through the editor's own
+   browser (3b) - today that is Envato only.
 
-## 3b. B-roll = Envato (optional)
+## 3b. B-roll = Envato (optional, the person's own paid subscription)
 
-`PY -m reel_editor config set BROLL_SOURCE envato`, then `./install.sh --with-envato` (Windows: `install.ps1
--WithEnvato`). The person must start Chrome with remote debugging (`--remote-debugging-port=9222`) and be logged in
-to app.envato.com in it. Tell them plainly: it uses THEIR subscription and browser session, and they should check
-Envato's licence terms (downloads are licensed per project).
+Envato has no public download API, so the editor uses its OWN browser: Google Chrome Canary with a permanent
+profile (`~/.ai-reel-editor/browser-profile`, outside the repo). It is separate from their everyday Chrome, keeps
+the login across restarts and updates, and a background job keeps it running and refreshes the session daily, so
+they should not have to log in again.
+
+1. `PY -m reel_editor config set BROLL_SOURCE envato`, then `./install.sh --with-envato` (Windows: `install.ps1
+   -WithEnvato`). This installs Node packages and Chrome Canary (macOS via Homebrew, Windows via winget; Linux has
+   no Canary, so Chrome/Chromium is used with the same separate profile).
+2. Ask them to choose (one message, recommend a):
+   > How should I get into your Envato account?
+   >   a) Log in once in my own browser window (recommended). I open it, you sign in, it stays logged in.
+   >   b) Give me your Envato email and password. I keep them only in this computer's private settings file
+   >      and use them to sign back in by myself if Envato ever logs out. (Does not work with Google/Apple
+   >      sign-in or 2-step codes. On Telegram, delete your message after I confirm it is saved.)
+   - a) Desktop: `PY -m reel_editor browser login envato` - a Canary window opens on the Envato sign-in page;
+     they log in (tick "Remember me"). The command waits, confirms, and moves the browser to the background.
+     Headless server: there is no window to show, so use b), or have them log in on a desktop install and copy
+     the `browser-profile` folder over.
+   - b) Save without echoing:
+     `echo "<email>" | PY -m reel_editor config set ENVATO_EMAIL -`
+     `echo "<password>" | PY -m reel_editor config set ENVATO_PASSWORD -`
+     then `PY -m reel_editor browser keepalive` (signs in and confirms). If it reports `2fa` or `captcha`, fall
+     back to a).
+3. Make it permanent: `PY -m reel_editor browser install-service` (start at login + daily keep-alive at 04:20;
+   on a Linux server also `loginctl enable-linger $USER` once).
+4. Check: `PY -m reel_editor browser status` must show `"envato_logged_in": true`.
+5. Tell them plainly: it uses THEIR subscription, downloads are licensed per project (check Envato's terms), and
+   the editor never presses Envato's AI-generation buttons.
 
 ## 3c. B-roll = none
 
