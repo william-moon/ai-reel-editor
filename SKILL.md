@@ -98,16 +98,20 @@ they should not have to log in again.
      they log in (tick "Remember me"). The command waits, confirms, and moves the browser to the background.
      Headless server: there is no window to show, so use b), or have them log in on a desktop install and copy
      the `browser-profile` folder over.
-   - b) Save it ENCRYPTED, never in .env, a file, a log, git, or your reply:
-     - They give the email and password to you (their agent). Save each one without echoing it:
+   - b) Save it ENCRYPTED, never in .env, a file, a log, git, or your reply. Either way works:
+     - Claude Code (or any AI agent): they give the email and password to you. Save each one without echoing it:
        `printf '%s\n' '<value>' | PY -m reel_editor vault set ENVATO_EMAIL -` and the same for
-       `ENVATO_PASSWORD`. On a terminal they can type it themselves instead: `PY -m reel_editor vault set
-       ENVATO_PASSWORD` (hidden prompt). Never repeat the values back; if they sent them in a chat, ask them to
-       delete that message.
+       `ENVATO_PASSWORD`. Never repeat the values back; ask them to delete the message if it was in a chat.
+     - Telegram: tell them to send `/envato` to their editor bot. It asks for the email, then the password,
+       deletes each message right after reading it, saves both encrypted and tests the sign-in.
+     - Terminal: `PY -m reel_editor vault set ENVATO_EMAIL` and `PY -m reel_editor vault set ENVATO_PASSWORD`
+       (hidden prompt). If they pasted it to you in chat, pipe it in without echoing:
+       `printf '%s\n' '<value>' | PY -m reel_editor vault set ENVATO_PASSWORD -`, then never repeat it, and ask
+       them to delete their message.
      - Protection: AES-256-GCM in `~/.ai-reel-editor/vault.bin` (outside the repo, mode 600); the key is in the OS
        keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service). On a headless Linux server
        with no keychain the key is a mode-600 file next to the vault: `PY -m reel_editor vault status` shows
-       which. Tell them this in one line. `vault delete ENVATO_PASSWORD` removes it.
+       which. Tell them this in one line. `vault delete ENVATO_PASSWORD` (or `/envato forget`) removes it.
      then `PY -m reel_editor browser keepalive` (signs in and confirms). If it reports `2fa`, help them turn
      off 2-step verification for Envato (step b.3); if `captcha`, have them log in once with a) on any desktop.
 3. Make it permanent: `PY -m reel_editor browser install-service` (start at login + daily keep-alive at 04:20;

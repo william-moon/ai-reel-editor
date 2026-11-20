@@ -120,6 +120,7 @@ COMMANDS = [
     ("model", "Show or switch the Claude model the editor uses"),
     ("style", "Show or switch the edit style"),
     ("privacy", "Where your videos and keys live"),
+    ("envato", "Save your Envato login (encrypted) so I can get B-roll"),
 ]
 HELP = ("I'm your reel editor. Send me a raw video AS A FILE (paperclip -> File) and I send back the finished "
         "reel with [Approve] [Change something]. Send a thumbnail image first if you want one.\n\n"
@@ -128,7 +129,8 @@ HELP = ("I'm your reel editor. Send me a raw video AS A FILE (paperclip -> File)
         "/cancel - stop the edit running now and clear the queue\n"
         "/model - show the Claude models I use (/model <id> to switch, /model reset to undo)\n"
         "/style - show the active style (/style <name> to switch)\n"
-        "/privacy - where your videos and keys live")
+        "/privacy - where your videos and keys live\n"
+        "/envato - save your Envato login, encrypted on this computer (only if the browser login can't work)")
 
 
 def fmt(sec):
@@ -162,6 +164,7 @@ class Bot:
         self.store = get_storage()
         self.current = None     # {jid, proc, started}
         self.cancelled = set()
+        self.wait_cred = {}     # chat -> {"step": "email"|"password", "email": ...}
 
     def run(self):
         me = api("getMe")
@@ -197,12 +200,15 @@ class Bot:
                           "and restart the bot to use it.")
             return
         text = (m.get("text") or "").strip()
+        if chat in self.wait_cred and text and not text.startswith("/"):
+            self.on_credential(chat, m, text)
+            return
         if text.startswith("/"):
             cmd, _, arg = text.partition(" ")
             cmd = cmd.split("@")[0].lower()
             handler = {"/start": self.cmd_help, "/help": self.cmd_help, "/status": self.cmd_status,
                        "/cancel": self.cmd_cancel, "/model": self.cmd_model, "/style": self.cmd_style,
-                       "/privacy": self.cmd_privacy}.get(cmd)
+                       "/privacy": self.cmd_privacy, "/envato": self.cmd_envato}.get(cmd)
             if handler:
                 handler(chat, arg.strip())
                 return
@@ -240,6 +246,64 @@ class Bot:
             self.cancelled.discard(jid)
             self.q.put(jid)
             say(chat, f"Queued ({self.q.qsize()} ahead incl. this one). I'll send it back when it's done.")
+
+    def cmd_envato(self, chat, arg):
+        if arg.lower() in ("cancel", "stop"):
+            self.wait_cred.pop(chat, None)
+            say(chat, "OK, nothing saved.")
+            return
+        if arg.lower() in ("forget", "delete"):
+            from . import vault
+            for k in vault.ALLOWED:
+                try:
+                    vault.delete(k)
+                except Exception:
+                    pass
+            say(chat, "Your Envato login is deleted from this computer.")
+            return
+        self.wait_cred[chat] = {"step": "email"}
+        say(chat, "Send your Envato EMAIL as the next message. I delete each message right after reading it and "
+                  "keep the login only on this computer, encrypted (AES-256, key in the system keychain). "
+                  "/envato cancel stops.\n\nYour account needs an email + password login. If you signed up "
+                  "with Google or Apple, first set a password at https://account.envato.com/reset_password")
+
+    def on_credential(self, chat, m, text):
+        st = self.wait_cred[chat]
+        try:
+            api("deleteMessage", {"chat_id": chat, "message_id": m["message_id"]})
+            gone = True
+        except Exception:
+            gone = False
+        if st["step"] == "email":
+            if "@" not in text or " " in text:
+                say(chat, "That doesn't look like an email. Send the email you log in to Envato with.")
+                return
+            st.update(step="password", email=text)
+            say(chat, "Got it. Now send your Envato PASSWORD." + ("" if gone else
+                      " (I couldn't delete your message: please delete it yourself.)"))
+            return
+        from . import vault
+        email = st.pop("email")
+        self.wait_cred.pop(chat, None)
+        try:
+            vault.put("ENVATO_EMAIL", email)
+            vault.put("ENVATO_PASSWORD", text)
+        except Exception as ex:
+            say(chat, f"Could not save the login: {str(ex)[:120]}")
+            return
+        del email, text
+        say(chat, ("Saved, encrypted. " if gone else "Saved, encrypted. Please delete your password message "
+                   "yourself; I couldn't. ") + "Checking that it signs in to Envato...")
+
+        def check():
+            from . import browser
+            lines = []
+            ok = browser.keepalive("envato", log=lines.append)
+            say(chat, "Envato sign-in works. I'll use it for B-roll." if ok else
+                "Saved, but the sign-in didn't finish: " + (lines[-1] if lines else "unknown") +
+                "\nIf Envato asked for a 2-step code, turn 2-step verification off in your Envato account "
+                "settings, then send /envato again.")
+        threading.Thread(target=check, daemon=True).start()
 
     def cmd_help(self, chat, arg):
         say(chat, HELP)
@@ -301,7 +365,9 @@ class Bot:
     def cmd_privacy(self, chat, arg):
         where = "your Google Drive" if C.STORAGE == "gdrive" else "folders on the computer running me"
         say(chat, "Your videos are edited on the computer or server running me and delivered to " + where + ". "
-                  "Keys stay in the editor's .env file and are never sent in chat. Claude sees the transcript and "
+                  "Keys stay in the editor's .env file and are never sent in chat. An Envato login (/envato) is "
+                  "kept encrypted (AES-256, key in the system keychain), outside the editor folder, and the "
+                  "messages you send it in are deleted. Claude sees the transcript and "
                   "a few still frames to make editing choices. Work files with the transcript are deleted after "
                   "you approve. Only the Telegram user ids in TELEGRAM_ALLOWED_USER_IDS can use me.")
 
