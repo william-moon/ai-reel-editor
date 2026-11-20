@@ -1,0 +1,9 @@
+{
+  "name": "ai-reel-editor-tools",
+  "private": true,
+  "type": "module",
+  "description": "Optional Envato adapter (drives your own logged-in Chrome).",
+  "dependencies": {
+    "playwright-core": "^1.48.0"
+  }
+}

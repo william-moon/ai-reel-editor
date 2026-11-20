@@ -1,0 +1,6 @@
+# Optional extras
+# Face tracking for smooth punch-ins + lip-sync measurement (falls back to centre framing without it).
+# mediapipe ships wheels for Python 3.10-3.12 on most platforms.
+mediapipe>=0.10.14
+# Test runner
+pytest>=7

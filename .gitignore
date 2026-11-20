@@ -1,0 +1,28 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.token
+*.key
+rclone.conf
+
+# local data: caches, work dirs, outputs, downloaded models
+workspace/
+models/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tools/node_modules/
+styles/*/measurements.json
+
+# media
+*.mp4
+*.mov
+*.m4v
+*.mkv
+*.webm
+*.wav
+*.mp3
+*.aiff
