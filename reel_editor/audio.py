@@ -144,3 +144,75 @@ def voice_offset(db, thr, lo, hi, run=3):
         if k >= run:
             return (i + run) * HOP
     return None
+
+
+# ---- clean cut points: a clip starts in the silence right before its first word and ends in the silence right
+# after its last word, so no sliver of a neighbouring (cut) word is ever heard. Whisper word times are often
+# 50-200 ms off, so the cut is placed from the loudness curve, not from the word times.
+QUIET_RUN = 3          # >= 30 ms below the voice threshold counts as a gap between words
+
+
+def clean_onset(db, thr, s, lo):
+    """(onset, quiet_from): onset = where the voice of the word starting near s begins; quiet_from = where the
+    silence before it begins (a cut anywhere in [quiet_from, onset] is clean). lo = earliest allowed time (the middle
+    of the previous transcript word). If the words run together (no silence), both are the quietest frame."""
+    n = len(db)
+    i = min(n - 1, int((s + 0.03) / HOP))
+    i_lo = max(0, int(lo / HOP))
+    if db[i] <= thr:     # the word really starts later than whisper says: find its first voiced frame
+        k = i
+        while k < min(n - 1, i + 25) and db[k] <= thr:
+            k += 1
+        if db[k] > thr:
+            i = k
+    # walk back through the word's own (voiced) start
+    while i > i_lo and db[i - 1] > thr:
+        i -= 1
+    onset_i = i
+    # now walk back through silence; it must last QUIET_RUN frames to count
+    j = onset_i
+    while j > i_lo and db[j - 1] <= thr:
+        j -= 1
+    if onset_i - j >= QUIET_RUN:
+        return onset_i * HOP, j * HOP
+    k0, k1 = i_lo, min(n, int((s + 0.03) / HOP) + 1)
+    if k1 <= k0:
+        return s, s
+    m = k0 + int(np.argmin(db[k0:k1]))
+    return m * HOP, m * HOP
+
+
+def clean_offset(db, thr, e, hi):
+    """(offset, quiet_to): offset = where the voice of the word ending near e stops; quiet_to = where the silence
+    after it ends (a cut anywhere in [offset, quiet_to] is clean). hi = latest allowed time (middle of the next
+    transcript word). Run-together words: both are the quietest frame."""
+    n = len(db)
+    i = max(0, int((e - 0.03) / HOP))
+    i_hi = min(n, int(hi / HOP))
+    if db[i] <= thr:     # the word really ended earlier than whisper says: back up to its last voiced frame
+        k = i
+        while k > max(0, i - 25) and db[k] <= thr:
+            k -= 1
+        if db[k] > thr:
+            i = k
+    while i < i_hi - 1 and db[i + 1] > thr:
+        i += 1
+    off_i = i + 1
+    j = off_i
+    while j < i_hi and db[j] <= thr:
+        j += 1
+    if j - off_i >= QUIET_RUN:
+        return off_i * HOP, j * HOP
+    k0, k1 = max(0, int((e - 0.03) / HOP)), i_hi
+    if k1 <= k0:
+        return e, e
+    m = k0 + int(np.argmin(db[k0:k1]))
+    return m * HOP, m * HOP
+
+
+def edge_db(db, a, b, ms=30):
+    """loudest 10 ms frame in the first and last `ms` of the clip [a, b] (join QA)"""
+    k = max(1, int(ms / 1000 / HOP))
+    ia, ib = int(a / HOP), int(b / HOP)
+    head = db[ia:ia + k]; tail = db[max(ia, ib - k):ib]
+    return (float(head.max()) if len(head) else -120.0, float(tail.max()) if len(tail) else -120.0)

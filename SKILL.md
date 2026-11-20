@@ -1,6 +1,6 @@
 ---
 name: ai-reel-editor
-description: Install, set up and run the AI reel editor - turns a raw selfie/talking-head recording into a finished vertical reel (cuts retakes and dead air, captions, B-roll every 3-4 s, stickers, smooth punch-ins, loudness) with Claude as the brain, and can learn a creator's own edit style from their past videos. Use when the user says "install this repo", "set up the video editor", "edit this video/reel", "learn my editing style", or drops a raw video to edit.
+description: Install, set up and run the AI reel editor - turns a raw selfie/talking-head recording into a finished vertical reel or 16:9 video (clean cuts of retakes and dead air, full subtitles on reels / dynamic on-screen text on landscape, a unique look per video, B-roll every 3-4 s, stickers, smooth punch-ins, loudness) with Claude as the brain, and can learn a creator's own edit style from their past videos. Use when the user says "install this repo", "set up the video editor", "edit this video/reel", "learn my editing style", or drops a raw video to edit.
 ---
 
 # AI reel editor - install-and-run playbook (for the agent)

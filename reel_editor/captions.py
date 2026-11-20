@@ -65,9 +65,84 @@ THEMES.update({
 })
 THEME = THEMES["classic"]
 
+# ---- unique look per video: a base look from the style's family, re-dressed (font, colours, highlight, entry,
+# case, tilt) and checked against the history so no two videos share the same look
+FONT_POOL = [("Rubik-ExtraBold.ttf", None), ("Rubik-VF.ttf", "Black"), ("Montserrat-VF.ttf", "ExtraBold"),
+             ("Montserrat-VF.ttf", "Black"), ("Poppins-ExtraBold.ttf", None), ("Poppins-Bold.ttf", None)]
+ITALIC_POOL = [("Rubik-Italic-VF.ttf", "ExtraBold Italic"), ("Montserrat-Italic-VF.ttf", "ExtraBold Italic"),
+               ("Montserrat-Italic-VF.ttf", "Black Italic"), ("Poppins-BoldItalic.ttf", None)]
+
+
+def _hsv(h, s, v):
+    import colorsys
+    return tuple(int(round(c * 255)) for c in colorsys.hsv_to_rgb(h % 1.0, s, v))
+
+
+def _lum(c):
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+
+
+def look_signature(t):
+    """what makes two looks look the same (hue in 15-degree steps)"""
+    import colorsys
+    h = colorsys.rgb_to_hsv(*[x / 255 for x in t["box"]])[0]
+    return "|".join(str(x) for x in (t["font"][0], t["font"][1], round(h * 24) % 24, t["active"], t.get("enter"),
+                                     bool(t.get("caps")), bool(t.get("lowkey"))))
+
+
+def make_look(family, history=(), rng=None, tries=400):
+    """a fresh caption look for one video: never one whose signature is in history (newest last)"""
+    import random
+    rng = rng or random.Random()
+    family = [f for f in family if f in THEMES] or ["classic"]
+    seen = set(history)
+    t = None
+    for _ in range(tries):
+        t = dict(THEMES[rng.choice(family)])
+        if t.get("lowkey"):
+            t["font"] = rng.choice(ITALIC_POOL + FONT_POOL[1:2])
+            t["box"] = _hsv(rng.choice([rng.uniform(0.95, 1.0), rng.uniform(0.0, 0.03), rng.uniform(0.55, 0.75),
+                                        rng.uniform(0.08, 0.13)]), rng.uniform(0.8, 0.92), rng.uniform(0.78, 0.92))
+            t["active_text"] = (255, 255, 255) if _lum(t["box"]) < 150 else (20, 20, 24)
+            t["enter"] = rng.choice([None, "pop", "rise"])
+            t["rotate"] = round(rng.uniform(1.0, 3.0), 1)
+        else:
+            t["font"] = rng.choice(FONT_POOL + ITALIC_POOL[:2])
+            hue = rng.random()
+            key = _hsv(hue, rng.uniform(0.62, 0.85), 1.0)
+            mode = rng.choice(["same", "complement", "analog"])
+            box = key if mode == "same" else _hsv(hue + (0.5 if mode == "complement" else rng.choice([-0.1, 0.1])),
+                                                    rng.uniform(0.6, 0.85), 1.0)
+            t["key"], t["box"] = key, box
+            t["active"] = rng.choice(["box", "box", "scale"])
+            t["active_text"] = ((20, 20, 24) if _lum(box) > 150 else (255, 255, 255)) if t["active"] == "box" else box
+            t["enter"] = rng.choice([None, "pop", "rise"])
+            t["caps"] = rng.random() < 0.3
+        if look_signature(t) not in seen:
+            break
+    import hashlib
+    t["name"] = "look-" + hashlib.md5(look_signature(t).encode()).hexdigest()[:6]
+    return t
+
+
+def load_theme(arg):
+    """--theme value: a theme.json path ({"theme": name|look}), a JSON look, or a built-in name"""
+    if isinstance(arg, dict):
+        return arg
+    if arg and os.path.exists(arg):
+        v = json.load(open(arg)).get("theme")
+        return load_theme(v)
+    if arg and arg.strip().startswith("{"):
+        return json.loads(arg)
+    return THEMES.get(arg or "classic", THEMES["classic"])
+
+
 def apply_theme(name):
     global THEME, FONT, PINK, TEAL, MAX_W, SPACE_K, CENTER_Y, MAX_SIZE, SPLIT_CHARS
-    THEME = THEMES.get(name, THEMES["classic"])
+    THEME = dict(load_theme(name))
+    for k in ("key", "box", "active_text"):
+        THEME[k] = tuple(THEME[k])
+    THEME["font"] = tuple(THEME["font"])
     if THEME.get("lowkey"):
         CENTER_Y, MAX_W, MAX_SIZE, SPLIT_CHARS = THEME["center_y"] * H, THEME["max_w"], THEME["max_size"], THEME["split"]
     if THEME["active"] == "scale":   # the growing word needs room: wider word gaps, a little less line width
@@ -249,7 +324,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("captions_json"); ap.add_argument("duration", type=float); ap.add_argument("out")
     ap.add_argument("--hide", default="[]")
-    ap.add_argument("--theme", default="classic", choices=sorted(THEMES))
+    ap.add_argument("--theme", default="classic", help="theme.json path, a JSON look, or a built-in name")
     ap.add_argument("--preview", help="render one caption (index) with first word active to PNG")
     a = ap.parse_args()
     apply_theme(a.theme)

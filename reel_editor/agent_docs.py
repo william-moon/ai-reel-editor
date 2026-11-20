@@ -72,7 +72,7 @@ def _broll(s):
 - Download stock footage only. Never press Envato's AI-generation buttons (they spend credits and are not stock).
 - Envato downloads are licensed per project: one licence per video. Keep the `- credits.txt` file with each
   finished video so they know which items each reel used.
-- Prefer vertical (9:16) clips; skip clips with logos, readable brand names or faces that pull focus."""
+- Prefer clips in the video's own orientation (9:16 reels, 16:9 landscape); skip clips with logos, readable brand names or faces that pull focus."""
     if b == "none":
         return """## B-roll: none
 - This setup uses no stock footage. Visual variety comes from captions, stickers, text cards and punch-ins.
@@ -91,7 +91,7 @@ def _broll(s):
 - Pixabay asks that results are cached (not hot-linked) and downloaded to your own storage: the editor does this.
 - Credit is not legally required on either site but is appreciated: `- credits.txt` next to each video lists
   the clips and authors. Never sell the clips on their own or imply the creators endorse the person.
-- Prefer vertical (9:16) clips; skip clips with logos, readable brand names or faces that pull focus.
+- Prefer clips in the video's own orientation (9:16 reels, 16:9 landscape); skip clips with logos, readable brand names or faces that pull focus.
 - Test keys any time with `{s['py']} -m reel_editor test-keys`."""
 
 
@@ -140,6 +140,19 @@ def _quality():
 - Delete the work dir when the video is final (`PY -m reel_editor clean <work>`): it holds the transcript."""
 
 
+def _look():
+    return """## What every edit does (defaults - keep them unless the person asks otherwise)
+- Vertical reels: word-by-word subtitles for the WHOLE video, also over B-roll (`captions_hide_under_broll: false`).
+- Landscape (16:9) videos: no word-by-word subtitles; frequent dynamic on-screen text instead (punch words, icon
+  badges, takeaway cards, count-up numbers, tag lists, numbered steps), about every 4 s where it fits, each item
+  written fresh from what is said in THAT video. The format follows the raw video (`format: auto`).
+- Every video gets its own subtitle/text look (font, colours, highlight style, entry animation, case), never one
+  used before for this style (`unique_caption_looks: true`). Do not reuse wording or a look from another video.
+- Clean cuts: every clip starts in the silence before its first word and ends in the silence after its last word,
+  placed from the loudness curve, not from the transcript times; the result lists `unclean_joins` (words that run
+  together) - listen to those spots if any."""
+
+
 def repo_doc(s):
     tg = "on" if s["telegram"] else "off"
     parts = [
@@ -148,7 +161,7 @@ def repo_doc(s):
         f"{ {'stock': 'Pexels + Pixabay', 'envato': 'Envato', 'none': 'none'}.get(s['broll'], s['broll'])}, "
         f"storage = {'Google Drive' if s['storage'] == 'gdrive' else 'local folders'}, Telegram bot = {tg}, "
         f"style = {s['style']}.\nFull playbook: [SKILL.md](SKILL.md). Code map: see the README.",
-        _work_style(), _brain(s), _broll(s), _storage(s), _commands(s), _quality(),
+        _work_style(), _look(), _brain(s), _broll(s), _storage(s), _commands(s), _quality(),
         f"## Style\n- The active style is `styles/{s['style']}/STYLE.md`. That file IS the style: edit it when the "
         "person asks for changes (\"more B-roll\", \"captions lower\"). Never put personal details into a STYLE.md.",
     ]

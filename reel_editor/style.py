@@ -22,6 +22,9 @@ DEFAULTS = {
     "speed": 1.05,                 # playback speed of the talking head
     "fps": 30,
     "width": 1080, "height": 1920,
+    "format": "auto",              # auto = follow the raw video (landscape in -> 16:9 out), or "vertical" / "landscape"
+    "landscape_size": [1920, 1080],
+    "landscape_text_gap": 4.0,     # landscape: dynamic on-screen text about this often (where it fits)
     "output_scale": 1,             # 2 = export 2160x3840 (4K) with the same layout
     "loudness_lufs": -14.0,
     "denoise": True,
@@ -47,7 +50,8 @@ DEFAULTS = {
     "clean_open": 0.0,             # seconds at the very start with no overlays at all
     # captions
     "caption_themes": ["classic", "sunrise", "ocean", "citrus", "ember", "violet"],
-    "captions_hide_under_broll": True,
+    "captions_hide_under_broll": False,   # reels: subtitles run the WHOLE video, over B-roll too
+    "unique_caption_looks": True,  # every video gets its own caption look (font/colours/highlight/entry), never repeated
     "caption_words": [3, 9],       # words per caption
     "key_words": True,             # colour the key words
     # brand

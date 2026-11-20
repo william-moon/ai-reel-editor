@@ -260,9 +260,9 @@ if __name__ == "__main__":
     a = ap.parse_args()
     # stickers/text cards follow the video's caption look: "pink" = its key colour, "teal" = its highlight colour
     from . import captions as _C
-    _t = _C.THEMES.get(a.theme, _C.THEMES["classic"])
+    _t = _C.load_theme(a.theme)
     if not _t.get("lowkey"):
-        COLORS["pink"], COLORS["teal"] = _t["key"], _t["box"]
+        COLORS["pink"], COLORS["teal"] = tuple(_t["key"]), tuple(_t["box"])
     evs = json.load(open(a.events_json))
     if a.preview is not None:
         fr = event_frames(evs[a.preview])

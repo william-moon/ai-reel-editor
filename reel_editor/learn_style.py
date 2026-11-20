@@ -117,7 +117,7 @@ footage and 4-6 GOOD and BAD example pairings in the style of the template, inve
 sound; anything distinctive), then ONE ```json settings block using ONLY keys from the template's settings and these
 extra keys: event_types (subset of "broll","pip","sticker","text","emoji","zoom","bw","title"), caption_themes
 (subset of AVAILABLE_THEMES; "lowkey_*" = small all-caps captions low in the frame with the spoken word on a red box;
-the others = bold centred captions with coloured key words), captions_hide_under_broll, key_words (false if they never
+the others = bold centred captions with coloured key words; each video gets its own variation of these), key_words (false if they never
 colour key words), caption_words ([min, max] words per caption), hook_no_broll, cta_no_broll, event_max_gap,
 event_target_gap, event_min_gap, broll_every_sec, zoom, zoom_push, output_scale (2 only if their videos are 4K),
 dur_limits. Base every number on what you measured/saw; when unsure keep the template value.

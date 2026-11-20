@@ -1,10 +1,14 @@
 # AI Reel Editor
 
-Turn a raw selfie / talking-head recording into a finished vertical reel, automatically:
+Turn a raw selfie / talking-head recording into a finished vertical reel (or a 16:9 landscape video), automatically:
 
 - keeps only your last good take of every line (false starts, "wait, let me redo that", off-camera talk removed)
-- removes dead air with natural-sounding joins, speeds up slightly, denoises, sets loudness to -14 LUFS, checks lip sync
-- word-by-word animated captions with coloured key words (one of several looks, rotated per video)
+- removes dead air with clean, natural-sounding joins (every cut sits in the silence between words, found from the
+  loudness curve, so no half-word ever leaks in), speeds up slightly, denoises, sets loudness to -14 LUFS, checks lip sync
+- reels: word-by-word animated subtitles for the whole video with coloured key words, in a look generated fresh for
+  every video (font, colours, highlight, entry animation) and never repeated
+- landscape (16:9) videos: frequent dynamic on-screen text instead of subtitles - punch words, icon badges,
+  takeaway cards, count-up numbers, tag lists and numbered steps, written from what is said in that video
 - something new on screen every 3-4 seconds: B-roll that matches your exact words, icon stickers, text cards,
   smooth punch-in zooms, black-and-white for negative moments
 - writes a title, description, hashtags and target keyword for posting

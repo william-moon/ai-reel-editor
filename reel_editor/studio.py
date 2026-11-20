@@ -49,8 +49,9 @@ ST = Style()          # replaced in run()
 PROVIDER = None       # B-roll provider (or None)
 PY = sys.executable
 CAPTION_THEME = None
+LANDSCAPE = False    # 16:9 output (set per video in edit(): style "format", or auto from the raw video)
 SYNC_BIAS = 0.04      # natural mouth-leads-voice lag (audio slightly behind the lips looks right)
-FADE = 0.006          # click-free audio edge at every cut
+FADE = 0.012          # click-free audio edge at every cut (equal-power, inside the silence)
 TAIL = 0.45           # hold after the very last word
 PAD_BEFORE = 0.08     # silence kept before the very first word
 SR = 48000
@@ -94,12 +95,48 @@ def FPS():
     return int(ST["fps"])
 
 
+ORIENT_SWAPS = [("a vertical (9:16) talking-head reel", "a landscape (16:9) video"),
+                ("vertical (9:16)", "landscape (16:9)"), ("short vertical reels", "videos"),
+                ("this vertical reel", "this landscape video"), ("a vertical reel", "a landscape (16:9) video"),
+                ("chosen for a vertical reel", "chosen for a landscape (16:9) video"),
+                ("prefer vertical clips", "prefer horizontal 16:9 clips"), ("cropped away in 9:16", "cropped away in 16:9"),
+                ("clear on a phone", "clear on a big screen"), ("The reel says", "The video says")]
+
+
+def orient(prompt):
+    """the prompts are written for vertical reels; a landscape video gets the 16:9 wording"""
+    if not LANDSCAPE:
+        return prompt
+    for a, b in ORIENT_SWAPS:
+        prompt = prompt.replace(a, b)
+    return prompt
+
+
 def ask(prompt, model="sonnet", images=()):
-    return brain.ask(ST.rulebook() + prompt, model=model, images=images)
+    return brain.ask(ST.rulebook() + orient(prompt), model=model, images=images)
 
 
 def ask_json(prompt, model="sonnet", images=()):
-    return brain.ask_json(ST.rulebook() + prompt, model=model, images=images)
+    return brain.ask_json(ST.rulebook() + orient(prompt), model=model, images=images)
+
+
+def source_is_landscape(src):
+    """wider than tall as displayed (phone rotation metadata taken into account)"""
+    try:
+        d = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                                                "stream=width,height:stream_tags=rotate:stream_side_data=rotation",
+                                                "-of", "json", src]))
+        v = d["streams"][0]
+        rot = abs(int(float((v.get("tags") or {}).get("rotate", 0) or 0)))
+        for sd in v.get("side_data_list") or []:
+            if "rotation" in sd:
+                rot = abs(int(float(sd["rotation"])))
+        w, h = int(v["width"]), int(v["height"])
+        if rot % 180 == 90:
+            w, h = h, w
+        return w > h
+    except Exception:
+        return False
 
 
 # ------------------------------------------------------------------ 1 transcribe
@@ -279,20 +316,24 @@ def step_spans(words, takes, dur, work):
     for g in groups:
         first, last = g[0], g[-1]
         prv_raw, nxt_raw = byi.get(first["i"] - 1), byi.get(last["i"] + 1)
-        on_lo = max(first["s"] - 0.30, (prv_raw["e"] + 0.02) if prv_raw else 0.0)
-        on = A.voice_onset(db, thr, on_lo, first["e"])
-        on = first["s"] if on is None else on
-        off_hi = min(last["e"] + 0.40, (nxt_raw["s"] - 0.02) if nxt_raw else dur)
-        off = A.voice_offset(db, thr, last["s"], off_hi)
-        off = last["e"] if off is None else off
+        # clean cut points from the loudness curve (never from whisper times alone): the clip may only start in the
+        # silence before its first word and end in the silence after its last word -> no sliver of a cut word
+        lo = max(first["s"] - 0.60, ((prv_raw["s"] + prv_raw["e"]) / 2) if prv_raw else 0.0)
+        on, quiet_from = A.clean_onset(db, thr, first["s"], lo)
+        hi = min(last["e"] + 0.60, ((nxt_raw["s"] + nxt_raw["e"]) / 2) if nxt_raw else dur)
+        off, quiet_to = A.clean_offset(db, thr, last["e"], hi)
         tail = (join_end if re.search(r"[.?!]$", last["w"]) else join_mid)[0]
-        spans.append({"on": on, "off": off, "tail": tail, "words": [w["i"] for w in g], "last": last["w"]})
+        spans.append({"on": on, "off": off, "qf": quiet_from, "qt": quiet_to, "tail": tail,
+                      "words": [w["i"] for w in g], "last": last["w"]})
     for k, sp in enumerate(spans):
         prev_end_sentence = k and re.search(r"[.?!]$", spans[k - 1]["last"])
         head = (join_end if prev_end_sentence else join_mid)[1] if k else PAD_BEFORE
-        sp["a"] = max(0.0, sp["on"] - head)
-        sp["b"] = sp["off"] + sp["tail"]
-    spans[-1]["b"] = min(dur, spans[-1]["off"] + TAIL)
+        # padding only inside the silence: never reach back into the previous sound or on into the next one
+        sp["a"] = max(0.0, sp["on"] - head, min(sp["on"], sp["qf"] + 0.01))
+        sp["b"] = min(sp["off"] + sp["tail"], max(sp["off"], sp["qt"] - 0.01))
+    last_sp = spans[-1]
+    last_sp["b"] = min(dur, last_sp["off"] + TAIL, max(last_sp["off"], last_sp["qt"] - 0.01)
+                       if last_sp["qt"] < dur - 0.02 else dur)
     clean = []
     for sp in spans:
         a, b = fr(sp["a"]), fr(sp["b"])
@@ -313,7 +354,15 @@ def step_spans(words, takes, dur, work):
         worst = max(worst, gap)
         if gap > ST["max_join_gap"]:
             log(f"WARNING long join {gap:.2f}s at {n['off'] / speed():.2f}s")
-    res = {"spans": clean, "cut_dur": round(off, 3), "final_dur": round(off / speed(), 3)}
+    # join QA: the first/last 30 ms of every clip must be silence (else a neighbouring word leaks in)
+    leaks = []
+    for k, sp in enumerate(clean):
+        h_db, t_db = A.edge_db(db, sp["a"], sp["b"])
+        if (k and h_db > thr + 6) or (k < len(clean) - 1 and t_db > thr + 6):
+            leaks.append(round(sp["off"] / speed(), 2))
+    if leaks:
+        log(f"note: {len(leaks)} join(s) where words run together (cut at the quietest point): {leaks[:12]}")
+    res = {"spans": clean, "cut_dur": round(off, 3), "final_dur": round(off / speed(), 3), "unclean_joins": leaks}
     jsave(out, res)
     log(f"{len(clean)} pieces, {dur:.1f}s -> {off:.1f}s -> {off / speed():.1f}s at {speed()}x; "
         f"longest join silence {worst:.2f}s")
@@ -497,6 +546,8 @@ CAPTIONS (start-end seconds: text):
 
 def event_types():
     types = [t for t in ST["event_types"] if t in EVENT_TEXT]
+    if LANDSCAPE:     # 16:9: B-roll, punch-ins and filters here; on-screen text comes from the dynamic-text layer
+        types = [t for t in types if t in ("broll", "zoom", "bw")]
     if PROVIDER is None:
         types = [t for t in types if t not in ("broll", "pip")]
     return types or ["zoom"]
@@ -768,16 +819,16 @@ def contact_sheet(cands, path):
 def pick_candidates(item, work, k):
     cands = []
     for q in item.get("queries", [])[:3]:
-        for orient in ("vertical", "any"):
+        for orient_ in (("horizontal", "any") if LANDSCAPE else ("vertical", "any")):
             try:
-                res = PROVIDER.search(q, orientation=orient, limit=12, log=log)
+                res = PROVIDER.search(q, orientation=orient_, limit=12, log=log)
             except Exception as ex:
                 log("search failed", q, str(ex)[:80])
                 res = []
             for r in res:
                 if r["id"] not in {c["id"] for c in cands} and r["id"] not in item.get("rejected", []):
                     r["query"] = q
-                    r["orientation_req"] = orient
+                    r["orientation_req"] = orient_
                     cands.append(r)
             if len([c for c in cands if c["query"] == q]) >= 8:
                 break
@@ -1029,23 +1080,30 @@ def filter_delay(cut_wav, final_a):
 
 
 def pick_theme(work):
-    """one caption look per video, never one of the last 3 used; a re-render of the same video keeps its look"""
+    """ONE caption look per video (consistent inside the video). With unique_caption_looks (default) every video gets
+    a freshly generated look - font, colours, highlight style, entry animation, case - whose signature has never been
+    used for this style before; otherwise the built-in looks rotate (never one of the last 3).
+    A re-render of the same video keeps its look. Returns (theme.json path, look name)."""
     tp = os.path.join(work, "theme.json")
     if os.path.exists(tp):
-        return jload(tp)["theme"]
+        th = jload(tp)["theme"]
+        return tp, (th.get("name", "custom") if isinstance(th, dict) else th)
     from . import captions as CAP
+    family = [t for t in ST["caption_themes"] if t in CAP.THEMES] or ["classic"]
+    hp = os.path.join(C.WORKSPACE, f".caption_theme_history_{re.sub(r'[^a-z0-9]+', '-', ST.name.lower())}.json")
+    hist = jload(hp) if os.path.exists(hp) else []
     if CAPTION_THEME:
-        th = CAPTION_THEME
+        th, sig = CAPTION_THEME, CAPTION_THEME
+    elif ST.get("unique_caption_looks", True):
+        th = CAP.make_look(family, history=hist)
+        sig = CAP.look_signature(th)
     else:
-        family = [t for t in ST["caption_themes"] if t in CAP.THEMES] or ["classic"]
-        hp = os.path.join(C.WORKSPACE, f".caption_theme_history_{re.sub(r'[^a-z0-9]+', '-', ST.name.lower())}.json")
-        hist = jload(hp) if os.path.exists(hp) else []
         options = [t for t in family if t not in hist[-3:]] or family
-        th = random.choice(options)
-        os.makedirs(C.WORKSPACE, exist_ok=True)
-        jsave(hp, (hist + [th])[-12:])
+        th = sig = random.choice(options)
+    os.makedirs(C.WORKSPACE, exist_ok=True)
+    jsave(hp, (hist + [sig])[-200:])
     jsave(tp, {"theme": th})
-    return th
+    return tp, (th.get("name", "custom") if isinstance(th, dict) else th)
 
 
 def measure_final_sync(work):
@@ -1101,7 +1159,7 @@ def prepare_av(src, work, sp, sync):
                          capture_output=True, check=True).stdout
     a = np.frombuffer(raw, np.float32)
     nf = int(FADE * SR)
-    ramp = np.linspace(0, 1, nf, dtype=np.float32)
+    ramp = np.sin(np.linspace(0, np.pi / 2, nf)).astype(np.float32)
     pieces = []
     for s in spans:
         f0, f1 = frames(s)
@@ -1182,6 +1240,49 @@ def red_x(path):
     im.save(path)
 
 
+DYNTEXT_RULES = """You are the motion-graphics editor for a landscape (16:9) video (talking head and/or screen
+recording). Add dynamic on-screen text: a new item about every GAP s (start to start) wherever it fits, each one
+RELEVANT to the exact words being said at that moment. Types (vary them, never the same type 3 times in a row):
+- {"type":"pop","text":"ONE TAKE"}  1-3 word punch phrase, max 16 characters, for the emphasised idea
+- {"type":"icon","icon":"<ICONS>","text":"Cuts the mess-ups"}  icon badge + label, max 26 characters
+- {"type":"callout","text":"..."}  key-takeaway card, max 40 characters
+- {"type":"stat","value":30,"prefix":"","suffix":"","label":"posts a day"}  count-up - ONLY numbers actually said
+- {"type":"chips","items":["TikTok","YouTube"]}  2-6 short tags (max 14 characters each) for a list said out loud
+- {"type":"steps","num":2,"text":"Open the settings"}  numbered step, for instructions
+Every item also has "start" (seconds, when its words are said) and "dur" (1.8-3.2).
+Rules:
+- Only facts and ideas actually said; no invented claims, prices or numbers; no emojis.
+- Write FRESH wording for THIS video, in the speaker's own terms. Do not fall back on stock filler phrases ("game
+  changer", "let's go", "pro tip", "mind blown") unless the speaker says them; never repeat the same text twice.
+- Items never overlap: next start >= previous start + previous dur + 0.3. Where nothing fits (silence, a demo
+  playing), leave a gap rather than forcing filler.
+Output ONLY a JSON list in time order.
+
+SPOKEN LINES (start-end seconds: text):
+"""
+
+
+def step_dyntext(caps, final_dur, work):
+    """landscape: plan the dynamic on-screen text (Claude); written once per video, kept on re-render"""
+    out = os.path.join(work, "dyntext.json")
+    if os.path.exists(out):
+        return jload(out)
+    from . import dyntext as DT
+    lines = "\n".join(f"{c['start']:.2f}-{c['end']:.2f}: " + " ".join(w["w"] for w in c["words"]) for c in caps)
+    gap = float(ST.get("landscape_text_gap", 4.0))
+    prompt = (DYNTEXT_RULES.replace("GAP", f"{gap:.1f}").replace("<ICONS>", "|".join(DT.ICON_NAMES))
+              + lines + f"\n\nVideo length: {final_dur:.1f} s.")
+    log(f"planning dynamic on-screen text every ~{gap:.0f} s (Claude)")
+    try:
+        ev = ask_json(prompt, model="sonnet")
+        ev = ev if isinstance(ev, list) else ev.get("events", [])
+    except Exception as ex:
+        log("dynamic text plan failed:", str(ex)[:120]); ev = []
+    ev = DT.clean(ev, final_dur)
+    jsave(out, ev)
+    return ev
+
+
 def step_render(src, work, sp, caps, plan, thumb, outp, av):
     W, H, S, fps = int(ST["width"]), int(ST["height"]), int(ST["output_scale"]), FPS()
     OW, OH = W * S, H * S
@@ -1200,13 +1301,23 @@ def step_render(src, work, sp, caps, plan, thumb, outp, av):
     caps_mov = os.path.join(work, "caps.mov")
     capj = os.path.join(work, "captions_render.json")
     jsave(capj, caps)
-    theme = pick_theme(work)
-    log(f"rendering captions ({theme} look) + {len(fx_ev)} stickers/text cards (in parallel)")
-    layers = [subprocess.Popen([PY, "-m", "reel_editor.fx", fxj, f"{final_dur:.3f}", fx_mov, "--theme", theme],
-                               cwd=C.ROOT),
-              subprocess.Popen([PY, "-m", "reel_editor.captions", capj, f"{final_dur:.3f}", caps_mov, "--hide",
-                                json.dumps(hide), "--theme", theme], cwd=C.ROOT)]
-    titles = [e for e in plan if e["type"] == "title"]
+    theme, look = pick_theme(work)
+    if LANDSCAPE:     # 16:9: no word-by-word subtitles; frequent dynamic on-screen text instead
+        dyn = step_dyntext(caps, final_dur, work)
+        dynj = os.path.join(work, "dyntext_render.json")
+        jsave(dynj, dyn)
+        jsave(fxj, [])
+        log(f"rendering dynamic on-screen text ({look} look, {len(dyn)} items)")
+        layers = [subprocess.Popen([PY, "-m", "reel_editor.dyntext", fxj, f"{final_dur:.3f}", fx_mov], cwd=C.ROOT),
+                  subprocess.Popen([PY, "-m", "reel_editor.dyntext", dynj, f"{final_dur:.3f}", caps_mov, "--theme",
+                                    theme], cwd=C.ROOT)]
+    else:
+        log(f"rendering captions ({look} look) + {len(fx_ev)} stickers/text cards (in parallel)")
+        layers = [subprocess.Popen([PY, "-m", "reel_editor.fx", fxj, f"{final_dur:.3f}", fx_mov, "--theme", theme],
+                                   cwd=C.ROOT),
+                  subprocess.Popen([PY, "-m", "reel_editor.captions", capj, f"{final_dur:.3f}", caps_mov, "--hide",
+                                    json.dumps(hide), "--theme", theme], cwd=C.ROOT)]
+    titles = [e for e in plan if e["type"] == "title" and not LANDSCAPE]
     titles_mov = os.path.join(work, "titles.mov")
     if titles:
         tj = os.path.join(work, "titles_render.json")
@@ -1311,8 +1422,9 @@ def step_render(src, work, sp, caps, plan, thumb, outp, av):
     if ls and logo and os.path.exists(logo):
         inputs += ["-loop", "1", "-i", logo]
         en = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in ls)
-        fc.append(f"[{idx}:v]scale={LOGO_W * S}:-1,format=rgba[lg]")
-        fc.append(f"{cur}[lg]overlay=x={LOGO_CX * S}-w/2:y={LOGO_CY * S}-h/2:enable='{en}':shortest=0[vl]")
+        lw_, lcx, lcy = (360, W - 250, 130) if LANDSCAPE else (LOGO_W, LOGO_CX, LOGO_CY)
+        fc.append(f"[{idx}:v]scale={lw_ * S}:-1,format=rgba[lg]")
+        fc.append(f"{cur}[lg]overlay=x={lcx * S}-w/2:y={lcy * S}-h/2:enable='{en}':shortest=0[vl]")
         cur, idx = "[vl]", idx + 1
     if clean_open:
         fc.append(f"{cur}[v0c]overlay=enable='lt(t,{clean_open})':eof_action=pass[vco]")
@@ -1418,6 +1530,11 @@ def edit(src, out=None, thumb=None, work=None, style_file=None, notes="", until=
     src = os.path.abspath(src)
     ST = Style(style_file or C.STYLE_FILE)
     CAPTION_THEME = caption_theme
+    global LANDSCAPE
+    fmt = str(ST.get("format", "auto")).lower()
+    LANDSCAPE = fmt == "landscape" or (fmt == "auto" and source_is_landscape(src))
+    if LANDSCAPE:
+        ST.s["width"], ST.s["height"] = [int(x) for x in ST.get("landscape_size", [1920, 1080])]
     from .broll import get_provider
     PROVIDER = get_provider(broll, log=log)
     base = os.path.splitext(os.path.basename(src))[0]
@@ -1433,7 +1550,8 @@ def edit(src, out=None, thumb=None, work=None, style_file=None, notes="", until=
             if f and os.path.exists(os.path.join(work, f)):
                 os.remove(os.path.join(work, f))
     stop = STEPS.index(until) if until else len(STEPS) - 1
-    log(f"work dir: {work} | style: {ST.name} | brain: {brain.mode()} | B-roll: {PROVIDER.name if PROVIDER else 'none'}")
+    log(f"work dir: {work} | style: {ST.name} | brain: {brain.mode()} | B-roll: {PROVIDER.name if PROVIDER else 'none'}"
+        f" | format: {'landscape 16:9 (dynamic text)' if LANDSCAPE else 'vertical 9:16 (full subtitles)'}")
     dur = probe(src)[0]
     words = step_transcribe(src, work)
     if stop < 1:
